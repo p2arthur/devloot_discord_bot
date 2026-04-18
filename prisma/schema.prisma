@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Top level: The Project
+model Project {
+  id           Int                @id @default(autoincrement())
+  name         String
+  description  String?
+  category     String
+  creator      String
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  repositories ProjectRepository[]
+}
+
+// 2. The Repository: Shared across projects
+model Repository {
+  id        Int      @id @default(autoincrement())
+  githubUrl String   @unique // e.g., https://github.com/algorandfoundation/algokit-utils-ts
+  bounties  Bounty[] // One repo can have many issue bounties
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  projects  ProjectRepository[]
+  users     UserRepository[]
+}
+
+// 3. Join: Project <-> Repository (many-to-many)
+model ProjectRepository {
+  id           Int        @id @default(autoincrement())
+  projectId    Int
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repositoryId Int
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([projectId, repositoryId])
+}
+
+// 4. Join: User <-> Repository (tracks which user discovered which repo)
+model UserRepository {
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repositoryId Int
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, repositoryId])
+}
+
+// 5. The Bounty: This is your "Issue" tracking
+model Bounty {
+  id          Int          @id @default(autoincrement()) // Starts at 1, unique ID
+  issueNumber Int // e.g., 424
+  issueUrl    String       @unique // e.g., https://github.com/org/repo/issues/424
+  bountyKey   String       @unique @map("bounty_key")
+  amount      Int
+  status      BountyStatus @default(OPEN)
+
+  // Relations
+  repositoryId Int
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  // User Relations
+  creatorWallet String
+  winnerId      Int?
+  winner        User?  @relation(fields: [winnerId], references: [id])
+
+  // Metadata
+  githubIssueId BigInt    @map("github_issue_id") // The internal GitHub global ID
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  claimedAt     DateTime?
+  claimerPR     String?   @map("claimer_pull_request")
+
+  // Oracle tracking fields
+  processedEventId BigInt?       @map("processed_event_id") // GitHub event ID to prevent double processing
+  lastCheckedAt    DateTime?     @map("last_checked_at") // For If-Modified-Since header
+  stateReason      String?       @map("state_reason") // completed, not_planned, etc.
+  closedByCommitId String?       @map("closed_by_commit_id") // Commit SHA that closed the issue
+
+  // Review window fields (Solutions 4 & 5)
+  reviewUntil      DateTime?     @map("review_until")
+  winningPrUrl     String?       @map("winning_pr_url")
+  winningPrAuthor  String?       @map("winning_pr_author")
+  riskScore        Int           @default(0) @map("risk_score")
+  riskReasons      String[]      @map("risk_reasons")
+  aiSummary        String?       @db.Text @map("ai_summary")
+  disputeReason    String?       @map("dispute_reason")
+  resolvedAt       DateTime?     @map("resolved_at")
+  resolvedBy       String?       @map("resolved_by") // admin wallet
+  resolutionAction String?       @map("resolution_action") // 'paid' or 'refunded'
+  approvedEarlyAt  DateTime?     @map("approved_early_at")
+
+  // Relations
+  notifications    Notification[]  // Relation to notifications for this bounty
+  transactions     Transaction[]   // Relation to transaction history for this bounty
+  messages         BountyMessage[] // Relation to bounty messages (creation + top-ups)
+
+  @@index([issueNumber])
+  @@index([status])
+}
+
+model User {
+  id                Int            @id @default(autoincrement())
+  githubId          Int            @unique
+  username          String?
+  wallet            String?
+  githubAccessToken String?        @map("github_access_token")
+  discordId         String?        @unique
+  xp                Int            @default(0)
+  lastDailyClaim    DateTime?
+  onboarded         Boolean        @default(false)
+  wonBounties       Bounty[]       // Relation back to bounties won by this user
+  notifications     Notification[] // Relation to user notifications
+  repositories      UserRepository[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model Notification {
+  id            Int      @id @default(autoincrement())
+  userId        Int?     // null for wallet-only users who haven't linked a GitHub account
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletAddress String?  // fallback identifier when no User record exists
+  type          String   // e.g., "bounty_won", "refund_available", "bounty_claimed"
+  message       String
+  bountyId      Int?
+  bounty        Bounty?  @relation(fields: [bountyId], references: [id], onDelete: SetNull)
+  read          Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([walletAddress])
+  @@index([bountyId])
+  @@index([read])
+}
+
+enum BountyStatus {
+  OPEN
+  ACTIVE              // PR exists referencing this bounty
+  IN_REVIEW           // PR merged, 72h review window active
+  READY_FOR_CLAIM     // Legacy: oracle-determined (deprecated flow)
+  CLAIMED
+  DISPUTED            // Creator raised dispute
+  RESOLVED            // Admin resolved dispute
+  PAID                // Successfully paid out
+  CANCELLED           // Issue closed as not_planned
+  REFUNDABLE          // Issue cancelled, funds can be refunded
+  REFUNDED            // Funds returned to creator
+}
+
+enum TransactionType {
+  BOUNTY_CREATED
+  BOUNTY_CLAIMED
+  BOUNTY_REFUNDED
+  BOUNTY_REVOKED
+  BOUNTY_CANCELLED
+  BOUNTY_TOPPED_UP
+}
+
+enum BountyMessageType {
+  CREATION
+  TOP_UP
+}
+
+model BountyMessage {
+  id            Int               @id @default(autoincrement())
+  bountyId      Int
+  bounty        Bounty            @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+  walletAddress String
+  message       String            @db.Text
+  type          BountyMessageType
+  amount        Int?              // microAlgos — only set for TOP_UP type
+  createdAt     DateTime          @default(now())
+
+  @@index([bountyId])
+  @@index([walletAddress])
+}
+
+model Transaction {
+  id            Int             @id @default(autoincrement())
+  walletAddress String
+  type          TransactionType
+  bountyId      Int
+  bounty        Bounty          @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+  amount        Int             // microAlgos
+  createdAt     DateTime        @default(now())
+
+  @@index([walletAddress])
+  @@index([bountyId])
+}
+
+model Proposal {
+  id            Int      @id @default(autoincrement())
+  issueUrl      String   @unique
+  owner         String
+  repo          String
+  issueNumber   Int
+  title         String
+  description   String?  @db.Text
+  status        String   @default("pending")
+  proposerId    String   // Discord user ID
+  aiAnalysis    String?  @db.Text
+  aiCachedAt    DateTime?
+  upvotes       Int      @default(0)
+  threadCreated Boolean  @default(false)
+  messageId     String?  // Discord message ID of the proposal embed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  votes         ProposalVote[]
+
+  @@index([owner, repo, issueNumber])
+  @@index([createdAt])
+}
+
+model ProposalVote {
+  id           Int      @id @default(autoincrement())
+  proposalId   Int
+  proposal     Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  userId       String   // Discord user ID
+  value        Int      @default(1) // 1 = upvote, -1 = downvote
+  createdAt    DateTime @default(now())
+
+  @@unique([proposalId, userId])
+}
+
+model QuestCompletion {
+  id        Int      @id @default(autoincrement())
+  userId    String   // Discord user ID
+  questType String
+  date      DateTime @default(now())
+
+  @@unique([userId, questType, date])
+  @@index([userId, date])
+}
+
+model DailyStreak {
+  userId        String   @id
+  currentStreak Int      @default(0)
+  longestStreak Int      @default(0)
+  lastClaimDate DateTime?
+  updatedAt     DateTime @updatedAt
+}
