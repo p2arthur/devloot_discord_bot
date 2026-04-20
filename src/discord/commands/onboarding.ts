@@ -1,11 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  MessageFlags,
+} from 'discord.js';
 
 @Injectable()
 export class OnboardingCommand {
   buildOnboardingMessage(discordId?: string) {
     const frontendUrl = process.env.CLIENT_URL || 'https://devloot.app';
-    const connectUrl = discordId ? `${frontendUrl}/connect?discord_id=${discordId}` : `${frontendUrl}/connect`;
+    const connectUrl = discordId
+      ? `${frontendUrl}/connect?discord_id=${discordId}`
+      : `${frontendUrl}/connect`;
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
@@ -21,8 +29,14 @@ export class OnboardingCommand {
       .setFooter({ text: 'Open source bounties on Algorand' });
 
     const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setLabel('Link GitHub').setStyle(ButtonStyle.Link).setURL(connectUrl),
-      new ButtonBuilder().setCustomId('onboarding-verify').setLabel('Verify').setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setLabel('Link GitHub')
+        .setStyle(ButtonStyle.Link)
+        .setURL(connectUrl),
+      new ButtonBuilder()
+        .setCustomId('onboarding-verify')
+        .setLabel('Verify')
+        .setStyle(ButtonStyle.Success),
     );
 
     return { embeds: [embed], components: [buttons] };

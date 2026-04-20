@@ -30,11 +30,14 @@ export class RankCommand {
       emoji = '\u{1F528}';
     }
 
-    const progress = nextThreshold === Infinity ? 'MAX' : `${xp}/${nextThreshold}`;
+    const progress =
+      nextThreshold === Infinity ? 'MAX' : `${xp}/${nextThreshold}`;
     const xpToNext = nextThreshold === Infinity ? 0 : nextThreshold - xp;
 
     // Get streak info
-    const streak = await this.prisma.dailyStreak.findUnique({ where: { userId: discordId } });
+    const streak = await this.prisma.dailyStreak.findUnique({
+      where: { userId: discordId },
+    });
 
     // Get total proposals
     const proposalCount = await this.prisma.proposal.count({
@@ -48,18 +51,44 @@ export class RankCommand {
         { name: 'Tier', value: tier, inline: true },
         { name: 'XP', value: `${xp}`, inline: true },
         { name: 'Progress', value: progress, inline: true },
-        { name: 'Daily Streak', value: `${streak?.currentStreak ?? 0} days`, inline: true },
-        { name: 'Best Streak', value: `${streak?.longestStreak ?? 0} days`, inline: true },
+        {
+          name: 'Daily Streak',
+          value: `${streak?.currentStreak ?? 0} days`,
+          inline: true,
+        },
+        {
+          name: 'Best Streak',
+          value: `${streak?.longestStreak ?? 0} days`,
+          inline: true,
+        },
         { name: 'Proposals', value: `${proposalCount}`, inline: true },
       );
 
-    const nextTierName = tier === 'Newcomer' ? 'Builder' : tier === 'Builder' ? 'Hunter' : tier === 'Hunter' ? 'Legend' : null;
-    const nextTierUnlock = tier === 'Newcomer' ? '/propose unlocked' : tier === 'Builder' ? 'Hunter perks' : tier === 'Hunter' ? 'Legend perks' : '';
+    const nextTierName =
+      tier === 'Newcomer'
+        ? 'Builder'
+        : tier === 'Builder'
+          ? 'Hunter'
+          : tier === 'Hunter'
+            ? 'Legend'
+            : null;
+    const nextTierUnlock =
+      tier === 'Newcomer'
+        ? '/propose unlocked'
+        : tier === 'Builder'
+          ? 'Hunter perks'
+          : tier === 'Hunter'
+            ? 'Legend perks'
+            : '';
 
     if (xpToNext > 0 && nextTierName) {
-      embed.setFooter({ text: `${xpToNext} XP to ${nextTierName} — ${nextTierUnlock}` });
+      embed.setFooter({
+        text: `${xpToNext} XP to ${nextTierName} — ${nextTierUnlock}`,
+      });
     } else if (tier === 'Legend') {
-      embed.setFooter({ text: 'Max tier reached. Create or claim a bounty for Open Source Chef.' });
+      embed.setFooter({
+        text: 'Max tier reached. Create or claim a bounty for Open Source Chef.',
+      });
     }
 
     await interaction.reply({ embeds: [embed], ephemeral: true });

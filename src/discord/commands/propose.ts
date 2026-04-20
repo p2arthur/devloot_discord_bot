@@ -1,11 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, TextChannel } from 'discord.js';
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Client,
+  TextChannel,
+} from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DiscordService } from '../discord.service';
+import { DiscordXpService } from '../services/discord-xp.service';
+import { DiscordRoleService } from '../services/discord-role.service';
 import { AiService } from '../../ai/ai.service';
 import axios from 'axios';
 
-const ISSUE_URL_REGEX = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
+const ISSUE_URL_REGEX =
+  /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
 
 @Injectable()
 export class ProposeCommand {
@@ -13,15 +22,23 @@ export class ProposeCommand {
 
   constructor(
     private prisma: PrismaService,
-    private discordService: DiscordService,
+    private xpService: DiscordXpService,
+    private roleService: DiscordRoleService,
     private aiService: AiService,
   ) {}
 
-  async handle(interaction: any, message: string, issueUrl: string, bountyAmountUsdc: number, client: Client) {
+  async handle(
+    interaction: any,
+    message: string,
+    issueUrl: string,
+    bountyAmountUsdc: number,
+    client: Client,
+  ) {
     const match = issueUrl.match(ISSUE_URL_REGEX);
     if (!match) {
       await interaction.reply({
-        content: 'Invalid issue URL. Format: https://github.com/{owner}/{repo}/issues/{number}',
+        content:
+          'Invalid issue URL. Format: https://github.com/{owner}/{repo}/issues/{number}',
         ephemeral: true,
       });
       return;
@@ -59,7 +76,9 @@ export class ProposeCommand {
     }
 
     // Check if same issue was already proposed in last 30 days
-    const existingProposal = await this.prisma.proposal.findUnique({ where: { issueUrl } });
+    const existingProposal = await this.prisma.proposal.findUnique({
+      where: { issueUrl },
+    });
     if (existingProposal) {
       await interaction.reply({
         content: 'This issue was already proposed recently.',
@@ -75,24 +94,37 @@ export class ProposeCommand {
     let issueBody = '';
     let issueLabels: string[] = [];
     try {
-      const issueRes = await axios.get(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`, {
-        headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
-      });
+      const issueRes = await axios.get(
+        `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
+        {
+          headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
+        },
+      );
 
       if (issueRes.data.state !== 'open') {
-        await interaction.editReply('This issue is closed. Only open issues can be proposed.');
+        await interaction.editReply(
+          'This issue is closed. Only open issues can be proposed.',
+        );
         return;
       }
 
       issueTitle = issueRes.data.title;
       issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: any) => (typeof l === 'string' ? l : l.name));
+      issueLabels = (issueRes.data.labels || []).map((l: any) =>
+        typeof l === 'string' ? l : l.name,
+      );
     } catch (err: any) {
-      this.logger.warn(`GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`);
+      this.logger.warn(
+        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`,
+      );
       if (err?.response?.status === 404) {
-        await interaction.editReply('Issue not found on GitHub. Double-check the URL.');
+        await interaction.editReply(
+          'Issue not found on GitHub. Double-check the URL.',
+        );
       } else {
-        await interaction.editReply('Failed to verify the issue on GitHub. Try again later.');
+        await interaction.editReply(
+          'Failed to verify the issue on GitHub. Try again later.',
+        );
       }
       return;
     }
@@ -102,7 +134,10 @@ export class ProposeCommand {
       where: { issueUrl },
     });
 
-    if (existingBounty && !['CLAIMED', 'REFUNDED', 'CANCELLED'].includes(existingBounty.status)) {
+    if (
+      existingBounty &&
+      !['CLAIMED', 'REFUNDED', 'CANCELLED'].includes(existingBounty.status)
+    ) {
       const bountyUrl = `${process.env.CLIENT_URL || 'https://devloot.app'}/bounty/${existingBounty.id}`;
       const embed = new EmbedBuilder()
         .setColor(0xf39c12)
@@ -112,7 +147,11 @@ export class ProposeCommand {
             `Top it up to increase the reward!`,
         )
         .addFields(
-          { name: 'Issue', value: `#${issueNumber}: "${issueTitle}"`, inline: false },
+          {
+            name: 'Issue',
+            value: `#${issueNumber}: "${issueTitle}"`,
+            inline: false,
+          },
           {
             name: 'Current Bounty',
             value: `${(existingBounty.amount / 1_000_000).toFixed(2)} USDC`,
@@ -122,7 +161,11 @@ export class ProposeCommand {
         );
 
       const topUpRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setLabel('TOP UP').setStyle(ButtonStyle.Link).setURL(bountyUrl).setEmoji('💰'),
+        new ButtonBuilder()
+          .setLabel('TOP UP')
+          .setStyle(ButtonStyle.Link)
+          .setURL(bountyUrl)
+          .setEmoji('💰'),
       );
 
       await interaction.editReply({ embeds: [embed], components: [topUpRow] });
@@ -130,7 +173,10 @@ export class ProposeCommand {
     }
 
     // AI summary
-    let aiSummary: { repoDescription: string; issueDescription: string } | null = null;
+    let aiSummary: {
+      repoDescription: string;
+      issueDescription: string;
+    } | null = null;
     try {
       aiSummary = await this.aiService.generateSuggestionSummary({
         owner,
@@ -140,7 +186,9 @@ export class ProposeCommand {
         issueBody,
       });
     } catch {
-      this.logger.warn(`[propose] AI summary failed for ${owner}/${repo}#${issueNumber}`);
+      this.logger.warn(
+        `[propose] AI summary failed for ${owner}/${repo}#${issueNumber}`,
+      );
     }
 
     // Save proposal to database
@@ -158,10 +206,10 @@ export class ProposeCommand {
     });
 
     // Award XP
-    await this.discordService.addProposalXp(discordId);
+    await this.xpService.addProposalXp(discordId);
 
     // Assign Scout role on first proposal
-    await this.discordService.assignScoutRole(discordId);
+    await this.roleService.assignScoutRole(discordId);
 
     // Build suggestions channel embed
     const suggestionsEmbed = new EmbedBuilder()
@@ -190,7 +238,10 @@ export class ProposeCommand {
         },
       );
 
-    if (aiSummary && (aiSummary.repoDescription || aiSummary.issueDescription)) {
+    if (
+      aiSummary &&
+      (aiSummary.repoDescription || aiSummary.issueDescription)
+    ) {
       if (aiSummary.repoDescription) {
         suggestionsEmbed.addFields({
           name: 'About the Project',
@@ -214,17 +265,27 @@ export class ProposeCommand {
     const topUpUrl = `${frontendUrl}/bounty/new?issueUrl=${encodeURIComponent(issueUrl)}`;
 
     const topUpRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setLabel('Create Bounty').setStyle(ButtonStyle.Link).setURL(topUpUrl).setEmoji('💰'),
+      new ButtonBuilder()
+        .setLabel('Create Bounty')
+        .setStyle(ButtonStyle.Link)
+        .setURL(topUpUrl)
+        .setEmoji('💰'),
     );
 
     // Post to bounty suggestions channel
-    const suggestionsChannelId = process.env.DISCORD_BOUNTY_SUGGESTIONS_CHANNEL_ID;
+    const suggestionsChannelId =
+      process.env.DISCORD_BOUNTY_SUGGESTIONS_CHANNEL_ID;
     let channelMessageId: string | null = null;
     if (suggestionsChannelId) {
       try {
-        const channel = (await client.channels.fetch(suggestionsChannelId)) as TextChannel;
+        const channel = (await client.channels.fetch(
+          suggestionsChannelId,
+        )) as TextChannel;
         if (channel && 'send' in channel) {
-          const channelMsg = await channel.send({ embeds: [suggestionsEmbed], components: [topUpRow] });
+          const channelMsg = await channel.send({
+            embeds: [suggestionsEmbed],
+            components: [topUpRow],
+          });
           channelMessageId = channelMsg.id;
           // Add reactions for voting
           await channelMsg.react('👍');
@@ -232,7 +293,9 @@ export class ProposeCommand {
           await channelMsg.react('💵');
         }
       } catch (err) {
-        this.logger.warn(`[propose] Failed to post to suggestions channel: ${err}`);
+        this.logger.warn(
+          `[propose] Failed to post to suggestions channel: ${err}`,
+        );
       }
     }
 
@@ -268,6 +331,8 @@ export class ProposeCommand {
       });
     }
 
-    this.logger.log(`[propose] ${discordId} proposed ${owner}/${repo}#${issueNumber} (${bountyAmountUsdc} USDC)`);
+    this.logger.log(
+      `[propose] ${discordId} proposed ${owner}/${repo}#${issueNumber} (${bountyAmountUsdc} USDC)`,
+    );
   }
 }

@@ -1,10 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EmbedBuilder } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DiscordService } from '../discord.service';
+import { DiscordXpService } from '../services/discord-xp.service';
 
 export const QUEST_POOL = [
-  { id: 'bounty_proposal', name: 'Propose a bounty in #bounty-proposal', xp: 25, type: 'engagement', channelId: '1493523305456468139' },
+  {
+    id: 'bounty_proposal',
+    name: 'Propose a bounty in #bounty-proposal',
+    xp: 25,
+    type: 'engagement',
+    channelId: '1493523305456468139',
+  },
 ];
 
 @Injectable()
@@ -13,7 +19,7 @@ export class QuestCommand {
 
   constructor(
     private prisma: PrismaService,
-    private discordService: DiscordService,
+    private xpService: DiscordXpService,
   ) {}
 
   async handle(interaction: any) {
@@ -29,7 +35,9 @@ export class QuestCommand {
 
     const embed = new EmbedBuilder()
       .setTitle("Today's Quest")
-      .setDescription('Post a bounty proposal to earn XP! Quest completes automatically when you post in the channel.')
+      .setDescription(
+        'Post a bounty proposal to earn XP! Quest completes automatically when you post in the channel.',
+      )
       .setColor(0xf1c40f);
 
     for (const q of QUEST_POOL) {
@@ -42,7 +50,9 @@ export class QuestCommand {
     }
 
     if (completedTypes.length >= QUEST_POOL.length) {
-      embed.setFooter({ text: 'All quests completed for today! Come back tomorrow.' });
+      embed.setFooter({
+        text: 'All quests completed for today! Come back tomorrow.',
+      });
     }
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
@@ -56,7 +66,9 @@ export class QuestCommand {
     today.setUTCHours(0, 0, 0, 0);
 
     const existing = await this.prisma.questCompletion.findUnique({
-      where: { userId_questType_date: { userId: discordId, questType, date: today } },
+      where: {
+        userId_questType_date: { userId: discordId, questType, date: today },
+      },
     });
 
     if (existing) return;
@@ -64,8 +76,10 @@ export class QuestCommand {
     await this.prisma.questCompletion.create({
       data: { userId: discordId, questType, date: today },
     });
-    await this.discordService.addXp(discordId, quest.xp);
+    await this.xpService.addXp(discordId, quest.xp);
 
-    this.logger.log(`[quest] Auto-completed ${questType} for ${discordId} (+${quest.xp} XP)`);
+    this.logger.log(
+      `[quest] Auto-completed ${questType} for ${discordId} (+${quest.xp} XP)`,
+    );
   }
 }

@@ -1,6 +1,11 @@
 import { Global, Module } from '@nestjs/common';
-import { DiscordService } from './discord.service';
-import { DiscordBotService } from './discord-bot.service';
+import { DiscordGateway } from './discord.gateway';
+import { DiscordNotificationService } from './services/discord-notification.service';
+import { DiscordXpService } from './services/discord-xp.service';
+import { DiscordRoleService } from './services/discord-role.service';
+import { DiscordGuildService } from './services/discord-guild.service';
+import { DiscordSetupService } from './handlers/discord-setup.service';
+import { DiscordVerifyService } from './handlers/discord-verify.service';
 import { OnboardingCommand } from './commands/onboarding';
 import { RankCommand } from './commands/rank';
 import { DailyCommand } from './commands/daily';
@@ -14,8 +19,13 @@ import { AiModule } from '../ai/ai.module';
 @Module({
   imports: [AiModule],
   providers: [
-    DiscordService,
-    DiscordBotService,
+    DiscordGateway,
+    DiscordNotificationService,
+    DiscordXpService,
+    DiscordRoleService,
+    DiscordGuildService,
+    DiscordSetupService,
+    DiscordVerifyService,
     OnboardingCommand,
     RankCommand,
     DailyCommand,
@@ -24,16 +34,6 @@ import { AiModule } from '../ai/ai.module';
     ProposalsCommand,
     LeaderboardCommand,
   ],
-  exports: [
-    DiscordService,
-    DiscordBotService,
-    OnboardingCommand,
-    RankCommand,
-    DailyCommand,
-    QuestCommand,
-    ProposeCommand,
-    ProposalsCommand,
-    LeaderboardCommand,
-  ],
+  exports: [DiscordNotificationService, DiscordXpService],
 })
 export class DiscordModule {}

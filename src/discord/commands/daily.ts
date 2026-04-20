@@ -4,7 +4,7 @@
 import { Injectable } from '@nestjs/common';
 import { EmbedBuilder, Colors } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DiscordService } from '../discord.service';
+import { DiscordXpService } from '../services/discord-xp.service';
 
 const BASE_XP = 10;
 const STREAK_BONUS_PER_DAY = 2;
@@ -14,7 +14,7 @@ const MAX_STREAK_BONUS = 30;
 export class DailyCommand {
   constructor(
     private prisma: PrismaService,
-    private discordService: DiscordService,
+    private xpService: DiscordXpService,
   ) {}
 
   async handle(interaction: any) {
@@ -38,7 +38,9 @@ export class DailyCommand {
     }
 
     // Calculate streak
-    let streak = await this.prisma.dailyStreak.findUnique({ where: { userId: discordId } });
+    let streak = await this.prisma.dailyStreak.findUnique({
+      where: { userId: discordId },
+    });
 
     let currentStreak = 1;
     let longestStreak = 1;
@@ -59,15 +61,23 @@ export class DailyCommand {
     streak = await this.prisma.dailyStreak.upsert({
       where: { userId: discordId },
       update: { currentStreak, longestStreak, lastClaimDate: now },
-      create: { userId: discordId, currentStreak, longestStreak, lastClaimDate: now },
+      create: {
+        userId: discordId,
+        currentStreak,
+        longestStreak,
+        lastClaimDate: now,
+      },
     });
 
     // Calculate XP with streak bonus
-    const streakBonus = Math.min((currentStreak - 1) * STREAK_BONUS_PER_DAY, MAX_STREAK_BONUS);
+    const streakBonus = Math.min(
+      (currentStreak - 1) * STREAK_BONUS_PER_DAY,
+      MAX_STREAK_BONUS,
+    );
     const totalXp = BASE_XP + streakBonus;
 
     // Award XP
-    await this.discordService.addXp(discordId, totalXp);
+    await this.xpService.addXp(discordId, totalXp);
 
     // Update lastDailyClaim on User
     await this.prisma.user.update({
@@ -81,16 +91,34 @@ export class DailyCommand {
       .setDescription(`You earned **${totalXp} XP**`)
       .addFields(
         { name: 'Base', value: `+${BASE_XP} XP`, inline: true },
-        { name: 'Streak Bonus', value: streakBonus > 0 ? `+${streakBonus} XP` : 'None', inline: true },
-        { name: 'Current Streak', value: `${currentStreak} day${currentStreak > 1 ? 's' : ''}`, inline: true },
-        { name: 'Best Streak', value: `${longestStreak} day${longestStreak > 1 ? 's' : ''}`, inline: true },
+        {
+          name: 'Streak Bonus',
+          value: streakBonus > 0 ? `+${streakBonus} XP` : 'None',
+          inline: true,
+        },
+        {
+          name: 'Current Streak',
+          value: `${currentStreak} day${currentStreak > 1 ? 's' : ''}`,
+          inline: true,
+        },
+        {
+          name: 'Best Streak',
+          value: `${longestStreak} day${longestStreak > 1 ? 's' : ''}`,
+          inline: true,
+        },
       );
 
     if (currentStreak >= 7) {
-      embed.setFooter({ text: `🔥 ${currentStreak}-day streak! Keep it going for max bonus (+${MAX_STREAK_BONUS} XP).` });
+      embed.setFooter({
+        text: `🔥 ${currentStreak}-day streak! Keep it going for max bonus (+${MAX_STREAK_BONUS} XP).`,
+      });
     } else {
-      const daysToMax = Math.ceil((MAX_STREAK_BONUS - streakBonus) / STREAK_BONUS_PER_DAY);
-      embed.setFooter({ text: `Streak bonus grows +${STREAK_BONUS_PER_DAY} XP/day (max +${MAX_STREAK_BONUS}). ${daysToMax} days to max.` });
+      const daysToMax = Math.ceil(
+        (MAX_STREAK_BONUS - streakBonus) / STREAK_BONUS_PER_DAY,
+      );
+      embed.setFooter({
+        text: `Streak bonus grows +${STREAK_BONUS_PER_DAY} XP/day (max +${MAX_STREAK_BONUS}). ${daysToMax} days to max.`,
+      });
     }
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
