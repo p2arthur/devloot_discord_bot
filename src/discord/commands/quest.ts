@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 
@@ -18,11 +18,11 @@ export class QuestCommand {
   private readonly logger = new Logger(QuestCommand.name);
 
   constructor(
-    private prisma: PrismaService,
-    private xpService: DiscordXpService,
+    private readonly prisma: PrismaService,
+    private readonly xpService: DiscordXpService,
   ) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -31,7 +31,7 @@ export class QuestCommand {
       where: { userId: discordId, date: { gte: today } },
     });
 
-    const completedTypes = completed.map((c) => c.questType);
+    const completedTypes = completed.map((entry) => entry.questType);
 
     const embed = new EmbedBuilder()
       .setTitle("Today's Quest")
@@ -40,11 +40,11 @@ export class QuestCommand {
       )
       .setColor(0xf1c40f);
 
-    for (const q of QUEST_POOL) {
-      const done = completedTypes.includes(q.id);
+    for (const quest of QUEST_POOL) {
+      const done = completedTypes.includes(quest.id);
       embed.addFields({
-        name: `${done ? '✅' : '⬜'} ${q.name}`,
-        value: done ? 'Completed!' : `+${q.xp} XP`,
+        name: `${done ? '✅' : '⬜'} ${quest.name}`,
+        value: done ? 'Completed!' : `+${quest.xp} XP`,
         inline: false,
       });
     }
@@ -58,8 +58,8 @@ export class QuestCommand {
     await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
-  async autoCompleteQuest(discordId: string, questType: string) {
-    const quest = QUEST_POOL.find((q) => q.id === questType);
+  async autoCompleteQuest(discordId: string, questType: string): Promise<void> {
+    const quest = QUEST_POOL.find((entry) => entry.id === questType);
     if (!quest) return;
 
     const today = new Date();
