@@ -1,17 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChatInputCommandInteraction,
   Client,
-  TextChannel,
+  EmbedBuilder,
 } from 'discord.js';
+import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 import { DiscordRoleService } from '../services/discord-role.service';
 import { AiService } from '../../ai/ai.service';
-import axios from 'axios';
+import { DiscordThreadService } from '../services/discord-thread.service';
+
+interface GitHubLabelRecord {
+  name?: string;
+}
+
+interface GitHubIssueResponse {
+  state?: string;
+  title?: string;
+  body?: string;
+  labels?: Array<string | GitHubLabelRecord>;
+}
 
 const ISSUE_URL_REGEX =
   /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
@@ -21,19 +33,20 @@ export class ProposeCommand {
   private readonly logger = new Logger(ProposeCommand.name);
 
   constructor(
-    private prisma: PrismaService,
-    private xpService: DiscordXpService,
-    private roleService: DiscordRoleService,
-    private aiService: AiService,
+    private readonly prisma: PrismaService,
+    private readonly xpService: DiscordXpService,
+    private readonly roleService: DiscordRoleService,
+    private readonly aiService: AiService,
+    private readonly threadService: DiscordThreadService,
   ) {}
 
   async handle(
-    interaction: any,
+    interaction: ChatInputCommandInteraction,
     message: string,
     issueUrl: string,
     bountyAmountUsdc: number,
     client: Client,
-  ) {
+  ): Promise<void> {
     const match = issueUrl.match(ISSUE_URL_REGEX);
     if (!match) {
       await interaction.reply({
@@ -45,11 +58,10 @@ export class ProposeCommand {
     }
 
     const [, owner, repo, issueNumberStr] = match;
-    const issueNumber = parseInt(issueNumberStr);
+    const issueNumber = Number.parseInt(issueNumberStr, 10);
     const discordId = interaction.user.id;
 
-    // Rate limit: 10 per user per 24h
-    const yesterday = new Date(Date.now() - 86400000);
+    const yesterday = new Date(Date.now() - 86_400_000);
     const recentProposals = await this.prisma.proposal.count({
       where: { proposerId: discordId, createdAt: { gte: yesterday } },
     });
@@ -61,7 +73,6 @@ export class ProposeCommand {
       return;
     }
 
-    // Server-wide rate limit: 10 per day
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const todayProposals = await this.prisma.proposal.count({
@@ -75,7 +86,6 @@ export class ProposeCommand {
       return;
     }
 
-    // Check if same issue was already proposed in last 30 days
     const existingProposal = await this.prisma.proposal.findUnique({
       where: { issueUrl },
     });
@@ -89,12 +99,11 @@ export class ProposeCommand {
 
     await interaction.deferReply({ ephemeral: true });
 
-    // Fetch issue from GitHub
-    let issueTitle: string;
+    let issueTitle = '';
     let issueBody = '';
     let issueLabels: string[] = [];
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GitHubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
@@ -108,16 +117,16 @@ export class ProposeCommand {
         return;
       }
 
-      issueTitle = issueRes.data.title;
-      issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
-      );
-    } catch (err: any) {
+      issueTitle = issueRes.data.title ?? '';
+      issueBody = issueRes.data.body ?? '';
+      issueLabels = (issueRes.data.labels || [])
+        .map((label) => (typeof label === 'string' ? label : label.name ?? ''))
+        .filter(Boolean);
+    } catch (err) {
       this.logger.warn(
-        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`,
+        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${this.describeError(err)}`,
       );
-      if (err?.response?.status === 404) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
         await interaction.editReply(
           'Issue not found on GitHub. Double-check the URL.',
         );
@@ -129,7 +138,6 @@ export class ProposeCommand {
       return;
     }
 
-    // Check if a bounty already exists and is open
     const existingBounty = await this.prisma.bounty.findUnique({
       where: { issueUrl },
     });
@@ -172,11 +180,7 @@ export class ProposeCommand {
       return;
     }
 
-    // AI summary
-    let aiSummary: {
-      repoDescription: string;
-      issueDescription: string;
-    } | null = null;
+    let aiSummary: { repoDescription: string; issueDescription: string } | null = null;
     try {
       aiSummary = await this.aiService.generateSuggestionSummary({
         owner,
@@ -191,7 +195,6 @@ export class ProposeCommand {
       );
     }
 
-    // Save proposal to database
     const proposal = await this.prisma.proposal.create({
       data: {
         issueUrl,
@@ -205,18 +208,17 @@ export class ProposeCommand {
       },
     });
 
-    // Award XP
     await this.xpService.addProposalXp(discordId);
-
-    // Assign Scout role on first proposal
     await this.roleService.assignScoutRole(discordId);
 
-    // Build suggestions channel embed
+    const displayName = interaction.member && 'displayName' in interaction.member
+      ? interaction.member.displayName
+      : interaction.user.username;
     const suggestionsEmbed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setTitle('Bounty Suggestion')
       .setAuthor({
-        name: interaction.user.displayName,
+        name: displayName,
         iconURL: interaction.user.displayAvatarURL(),
       })
       .setDescription(message)
@@ -238,10 +240,7 @@ export class ProposeCommand {
         },
       );
 
-    if (
-      aiSummary &&
-      (aiSummary.repoDescription || aiSummary.issueDescription)
-    ) {
+    if (aiSummary?.repoDescription || aiSummary?.issueDescription) {
       if (aiSummary.repoDescription) {
         suggestionsEmbed.addFields({
           name: 'About the Project',
@@ -256,7 +255,7 @@ export class ProposeCommand {
           inline: false,
         });
       }
-      suggestionsEmbed.setFooter({ text: '⚡ AI-generated summary' });
+      suggestionsEmbed.setFooter({ text: 'AI-generated summary' });
     }
 
     suggestionsEmbed.setTimestamp();
@@ -272,37 +271,39 @@ export class ProposeCommand {
         .setEmoji('💰'),
     );
 
-    // Post to bounty suggestions channel
-    const suggestionsChannelId =
-      process.env.DISCORD_BOUNTY_SUGGESTIONS_CHANNEL_ID;
+    const suggestionsChannelId = process.env.DISCORD_BOUNTY_SUGGESTIONS_CHANNEL_ID;
     let channelMessageId: string | null = null;
+    let threadCreated = false;
     if (suggestionsChannelId) {
       try {
-        const channel = (await client.channels.fetch(
-          suggestionsChannelId,
-        )) as TextChannel;
+        const channel = await client.channels.fetch(suggestionsChannelId);
         if (channel && 'send' in channel) {
           const channelMsg = await channel.send({
             embeds: [suggestionsEmbed],
             components: [topUpRow],
           });
           channelMessageId = channelMsg.id;
-          // Add reactions for voting
           await channelMsg.react('👍');
           await channelMsg.react('👎');
           await channelMsg.react('💵');
+
+          threadCreated = await this.threadService.createThreadFromMessage({
+            channelId: suggestionsChannelId,
+            messageId: channelMsg.id,
+            name: `proposal-${issueNumber}-${issueTitle || repo}`,
+            reason: 'DevLoot proposal discussion thread',
+          });
         }
       } catch (err) {
         this.logger.warn(
-          `[propose] Failed to post to suggestions channel: ${err}`,
+          `[propose] Failed to post to suggestions channel: ${this.describeError(err)}`,
         );
       }
     }
 
-    // Build ephemeral reply
     const replyEmbed = new EmbedBuilder()
       .setColor(0x2ecc71)
-      .setTitle(`Issue Proposed by @${interaction.user.displayName}`)
+      .setTitle(`Issue Proposed by ${displayName}`)
       .addFields(
         {
           name: 'Repository',
@@ -323,16 +324,25 @@ export class ProposeCommand {
 
     await interaction.editReply({ embeds: [replyEmbed] });
 
-    // Store channel message ID for vote tracking
     if (channelMessageId) {
       await this.prisma.proposal.update({
         where: { id: proposal.id },
-        data: { messageId: channelMessageId },
+        data: {
+          messageId: channelMessageId,
+          threadCreated,
+        },
       });
     }
 
     this.logger.log(
       `[propose] ${discordId} proposed ${owner}/${repo}#${issueNumber} (${bountyAmountUsdc} USDC)`,
     );
+  }
+
+  private describeError(err: unknown): string {
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message ?? err);
+    }
+    return String(err);
   }
 }
