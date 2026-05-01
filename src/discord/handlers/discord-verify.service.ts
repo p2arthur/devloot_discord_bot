@@ -1,7 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, MessageFlags } from 'discord.js';
+import { ButtonInteraction, Colors, EmbedBuilder } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordRoleService } from '../services/discord-role.service';
 import { DiscordGuildService } from '../services/discord-guild.service';
@@ -18,10 +16,10 @@ export class DiscordVerifyService {
 
   async checkOnboarded(discordId: string): Promise<boolean> {
     const user = await this.prisma.user.findUnique({ where: { discordId } });
-    return !!(user?.onboarded && user?.githubId);
+    return Boolean(user?.onboarded && user.githubId);
   }
 
-  async handleVerify(interaction: any): Promise<void> {
+  async handleVerify(interaction: ButtonInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const userTag = interaction.user.tag;
 
@@ -40,7 +38,7 @@ export class DiscordVerifyService {
         `githubId: ${existing?.githubId ?? 'NONE'}, ` +
         `username: ${existing?.username ?? 'NONE'}, ` +
         `wallet: ${existing?.wallet ?? 'NONE'}, ` +
-        `githubAccessToken: ${existing?.githubAccessToken ? 'SET(' + existing.githubAccessToken.slice(0, 6) + '...)' : 'NULL'}, ` +
+        `githubAccessToken: ${existing?.githubAccessToken ? `SET(${existing.githubAccessToken.slice(0, 6)}...)` : 'NULL'}, ` +
         `onboarded: ${existing?.onboarded ?? false}, ` +
         `xp: ${existing?.xp ?? 0}`,
     );
@@ -52,8 +50,7 @@ export class DiscordVerifyService {
 
       await this.roleService.syncTierRole(discordId, existing.xp);
 
-      const verifiedRoleId =
-        await this.roleService.fetchRoleIdByName('Verified');
+      const verifiedRoleId = await this.roleService.fetchRoleIdByName('Verified');
       if (verifiedRoleId && interaction.guild) {
         try {
           const member = await interaction.guild.members.fetch(discordId);
@@ -64,13 +61,13 @@ export class DiscordVerifyService {
             );
           }
         } catch (err) {
-          this.logger.warn(`[verify] Failed to sync Verified role: ${err}`);
+          this.logger.warn(`[verify] Failed to sync Verified role: ${this.describeError(err)}`);
         }
       }
 
       await interaction.reply({
         content: 'You are already verified! Roles synced.',
-        flags: MessageFlags.Ephemeral,
+        ephemeral: true,
       });
       return;
     }
@@ -91,7 +88,7 @@ export class DiscordVerifyService {
         this.logger.warn(
           `[verify] DATA ISSUE: Found ${allWithDiscordId.length} user records with discordId=${discordId}: ` +
             allWithDiscordId
-              .map((u) => `id=${u.id},githubId=${u.githubId ?? 'null'}`)
+              .map((user) => `id=${user.id},githubId=${user.githubId ?? 'null'}`)
               .join(' | '),
         );
       }
@@ -99,13 +96,13 @@ export class DiscordVerifyService {
       await interaction.reply({
         content:
           'No GitHub account linked yet. Click **Link GitHub** first, sign in with GitHub, then come back and click **Verify**.',
-        flags: MessageFlags.Ephemeral,
+        ephemeral: true,
       });
       return;
     }
 
     this.logger.log(`[verify] Marking ${discordId} as onboarded`);
-    const isFirstVerify = !existing?.onboarded;
+    const isFirstVerify = !existing.onboarded;
 
     const updatedUser = await this.prisma.user.update({
       where: { discordId },
@@ -130,7 +127,7 @@ export class DiscordVerifyService {
           `[verify] Assigned Verified role ${verifiedRoleId} to ${discordId}`,
         );
       } catch (err) {
-        this.logger.warn(`[verify] Failed to assign Verified role: ${err}`);
+        this.logger.warn(`[verify] Failed to assign Verified role: ${this.describeError(err)}`);
       }
     }
 
@@ -140,11 +137,9 @@ export class DiscordVerifyService {
     await this.roleService.syncTierRole(discordId, updatedUser.xp);
 
     try {
-      const generalChannelId =
-        await this.guildService.fetchChannelIdByName('⚡-general');
+      const generalChannelId = await this.guildService.fetchChannelIdByName('⚡-general');
       if (generalChannelId) {
-        const channel =
-          await interaction.guild?.channels.fetch(generalChannelId);
+        const channel = await interaction.guild?.channels.fetch(generalChannelId);
         if (channel && 'send' in channel) {
           await channel.send(`Welcome <@${discordId}> to DevLoot! 🎉`);
           this.logger.log(
@@ -153,7 +148,7 @@ export class DiscordVerifyService {
         }
       }
     } catch (err) {
-      this.logger.warn(`[verify] Failed to post welcome in general: ${err}`);
+      this.logger.warn(`[verify] Failed to post welcome in general: ${this.describeError(err)}`);
     }
 
     const embed = new EmbedBuilder()
@@ -179,7 +174,14 @@ export class DiscordVerifyService {
         inline: false,
       });
 
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], ephemeral: true });
     this.logger.log(`[verify] ${discordId} verified successfully`);
+  }
+
+  private describeError(err: unknown): string {
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message ?? err);
+    }
+    return String(err);
   }
 }
