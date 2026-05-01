@@ -1,6 +1,17 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import axios from 'axios';
 import { AiService } from '../../ai/ai.service';
+import { DiscordThreadService } from './discord-thread.service';
+
+interface GitHubLabelRecord {
+  name?: string;
+}
+
+interface GitHubIssueResponse {
+  title?: string;
+  body?: string;
+  labels?: Array<string | GitHubLabelRecord>;
+}
 
 @Injectable()
 export class DiscordNotificationService implements OnModuleInit {
@@ -8,13 +19,16 @@ export class DiscordNotificationService implements OnModuleInit {
   private readonly botToken = process.env.DISCORD_BOT_TOKEN;
   private readonly channelId = process.env.DISCORD_BOUNTY_FEED_CHANNEL;
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly threadService: DiscordThreadService,
+  ) {}
 
   private get isConfigured(): boolean {
     return !!(this.botToken && this.channelId);
   }
 
-  onModuleInit() {
+  onModuleInit(): void {
     this.logger.log(
       `Discord config — token present: ${!!this.botToken}, channelId: ${this.channelId ?? 'NOT SET'}`,
     );
@@ -27,20 +41,16 @@ export class DiscordNotificationService implements OnModuleInit {
     }
   }
 
-  private async sendMessage(content: string): Promise<void> {
+  private async postMessage(payload: unknown): Promise<string | null> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
-      return;
+      return null;
     }
-
-    this.logger.debug(
-      `Sending Discord message to channel ${this.channelId}: ${content.slice(0, 80)}`,
-    );
 
     try {
       const response = await axios.post(
         `https://discord.com/api/v10/channels/${this.channelId}/messages`,
-        { content },
+        payload,
         {
           headers: {
             Authorization: `Bot ${this.botToken}`,
@@ -51,59 +61,34 @@ export class DiscordNotificationService implements OnModuleInit {
       this.logger.log(
         `Discord message sent — status: ${response.status}, messageId: ${response.data?.id}`,
       );
+      return response.data?.id ?? null;
     } catch (err) {
       this.logger.error(
-        `Discord notification failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord notification failed — status: ${axios.isAxiosError(err) ? err.response?.status : 'unknown'}, body: ${axios.isAxiosError(err) ? JSON.stringify(err.response?.data) : 'unknown'}, message: ${this.describeError(err)}`,
       );
+      return null;
+    }
+  }
+
+  private async postFeedMessage(
+    payload: unknown,
+    threadName?: string,
+  ): Promise<void> {
+    const messageId = await this.postMessage(payload);
+    if (messageId && threadName) {
+      await this.threadService.createThreadFromMessage({
+        channelId: this.channelId ?? '',
+        messageId,
+        name: threadName,
+        reason: 'DevLoot bounty feed auto-thread',
+      });
     }
   }
 
   notifyProjectCreated(projectName: string, category: string): void {
-    void this.sendMessage(
+    void this.postMessage(
       `🚀 **New project created:** **${projectName}** [${category}]`,
     );
-  }
-
-  private async sendEmbed(
-    title: string,
-    description: string,
-    fields: { name: string; value: string; inline?: boolean }[],
-    color: number,
-  ): Promise<void> {
-    if (!this.isConfigured) {
-      this.logger.warn('Discord not configured — skipping notification');
-      return;
-    }
-
-    try {
-      const response = await axios.post(
-        `https://discord.com/api/v10/channels/${this.channelId}/messages`,
-        {
-          embeds: [
-            {
-              title,
-              description,
-              fields,
-              color,
-              timestamp: new Date().toISOString(),
-            },
-          ],
-        },
-        {
-          headers: {
-            Authorization: `Bot ${this.botToken}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-      this.logger.log(
-        `Discord embed sent — status: ${response.status}, messageId: ${response.data?.id}`,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Discord embed failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
-      );
-    }
   }
 
   async notifyBountyCreated(
@@ -117,23 +102,21 @@ export class DiscordNotificationService implements OnModuleInit {
       /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/,
     );
     if (!match) {
-      await this.sendMessage(
+      await this.postFeedMessage(
         `🎯 **New bounty:** ${issueUrl}\n💰 **${amount} USDC** — created by \`${creatorWallet}\``,
+        'bounty discussion',
       );
       return;
     }
 
     const [, owner, repo, issueNumberStr] = match;
-    const issueNumber = parseInt(issueNumberStr);
+    const issueNumber = Number.parseInt(issueNumberStr, 10);
 
     let issueTitle = '';
-    let aiSummary: {
-      repoDescription: string;
-      issueDescription: string;
-    } | null = null;
+    let aiSummary: { repoDescription: string; issueDescription: string } | null = null;
 
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GitHubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
@@ -141,9 +124,9 @@ export class DiscordNotificationService implements OnModuleInit {
       );
       issueTitle = issueRes.data.title || '';
       const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
-      );
+      const issueLabels = (issueRes.data.labels || [])
+        .map((label) => (typeof label === 'string' ? label : label.name || ''))
+        .filter(Boolean);
 
       aiSummary = await this.aiService.generateSuggestionSummary({
         owner,
@@ -154,7 +137,7 @@ export class DiscordNotificationService implements OnModuleInit {
       });
     } catch (err) {
       this.logger.warn(
-        `[bounty-feed] Failed to fetch issue or generate AI summary: ${err}`,
+        `[bounty-feed] Failed to fetch issue or generate AI summary: ${this.describeError(err)}`,
       );
     }
 
@@ -185,11 +168,19 @@ export class DiscordNotificationService implements OnModuleInit {
       });
     }
 
-    await this.sendEmbed(
-      '🎯 New Bounty Created',
-      `[${owner}/${repo}](https://github.com/${owner}/${repo})`,
-      fields,
-      0x2ecc71,
+    await this.postFeedMessage(
+      {
+        embeds: [
+          {
+            title: '🎯 New Bounty Created',
+            description: `[${owner}/${repo}](https://github.com/${owner}/${repo})`,
+            fields,
+            color: 0x2ecc71,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+      `bounty-${issueNumber}`,
     );
   }
 
@@ -198,8 +189,9 @@ export class DiscordNotificationService implements OnModuleInit {
     issueUrl: string,
     winnerWallet: string,
   ): void {
-    void this.sendMessage(
+    void this.postFeedMessage(
       `✅ **Bounty claimed:** [#${bountyId}](${issueUrl})\n🏆 Winner: \`${winnerWallet}\``,
+      `bounty-${bountyId}`,
     );
   }
 
@@ -208,8 +200,9 @@ export class DiscordNotificationService implements OnModuleInit {
     issueUrl: string,
     reason: string,
   ): void {
-    void this.sendMessage(
+    void this.postFeedMessage(
       `⚠️ **Bounty disputed:** [#${bountyId}](${issueUrl})\n📝 Reason: ${reason}`,
+      `bounty-${bountyId}`,
     );
   }
 
@@ -218,8 +211,9 @@ export class DiscordNotificationService implements OnModuleInit {
     issueUrl: string,
     winnerWallet: string,
   ): void {
-    void this.sendMessage(
+    void this.postFeedMessage(
       `👍 **Bounty approved:** [#${bountyId}](${issueUrl})\n🏆 Winner \`${winnerWallet}\` is ready to claim`,
+      `bounty-${bountyId}`,
     );
   }
 
@@ -231,8 +225,16 @@ export class DiscordNotificationService implements OnModuleInit {
   ): void {
     const added = (addedCurrencyAmount / 1_000_000).toFixed(2);
     const total = (totalCurrencyAmount / 1_000_000).toFixed(2);
-    void this.sendMessage(
+    void this.postFeedMessage(
       `💸 **Bounty topped up:** [#${bountyId}](${issueUrl})\n+${added} USDC → total **${total} USDC**`,
+      `bounty-${bountyId}`,
     );
+  }
+
+  private describeError(err: unknown): string {
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message ?? err);
+    }
+    return String(err);
   }
 }
