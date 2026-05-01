@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { EmbedBuilder, Colors } from 'discord.js';
+import { Colors, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class RankCommand {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const user = await this.prisma.user.findUnique({ where: { discordId } });
 
@@ -14,39 +14,40 @@ export class RankCommand {
     const thresholds = { builder: 500, hunter: 2000, legend: 5000 };
     let tier = 'Newcomer';
     let nextThreshold = thresholds.builder;
-    let emoji = '\u{1F4E6}';
+    let emoji = '📦';
 
     if (xp >= thresholds.legend) {
       tier = 'Legend';
       nextThreshold = Infinity;
-      emoji = '\u{2B50}';
+      emoji = '⭐';
     } else if (xp >= thresholds.hunter) {
       tier = 'Hunter';
       nextThreshold = thresholds.legend;
-      emoji = '\u{1F3AF}';
+      emoji = '🎯';
     } else if (xp >= thresholds.builder) {
       tier = 'Builder';
       nextThreshold = thresholds.hunter;
-      emoji = '\u{1F528}';
+      emoji = '🔨';
     }
 
-    const progress =
-      nextThreshold === Infinity ? 'MAX' : `${xp}/${nextThreshold}`;
+    const progress = nextThreshold === Infinity ? 'MAX' : `${xp}/${nextThreshold}`;
     const xpToNext = nextThreshold === Infinity ? 0 : nextThreshold - xp;
 
-    // Get streak info
     const streak = await this.prisma.dailyStreak.findUnique({
       where: { userId: discordId },
     });
 
-    // Get total proposals
     const proposalCount = await this.prisma.proposal.count({
       where: { proposerId: discordId },
     });
 
+    const displayName = interaction.member && 'displayName' in interaction.member
+      ? interaction.member.displayName
+      : interaction.user.username;
+
     const embed = new EmbedBuilder()
       .setColor(Colors.Blue)
-      .setTitle(`${emoji} ${interaction.user.displayName}'s Rank`)
+      .setTitle(`${emoji} ${displayName}'s Rank`)
       .addFields(
         { name: 'Tier', value: tier, inline: true },
         { name: 'XP', value: `${xp}`, inline: true },
