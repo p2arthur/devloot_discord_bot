@@ -6,6 +6,11 @@ import { DiscordRoleService } from './services/discord-role.service';
 import { DiscordGuildService } from './services/discord-guild.service';
 import { DiscordSetupService } from './handlers/discord-setup.service';
 import { DiscordVerifyService } from './handlers/discord-verify.service';
+import { ProposalVoteService } from './services/proposal-vote.service';
+import { ChannelModerationService } from './services/channel-moderation.service';
+import { XpSyncService } from './services/xp-sync.service';
+import { ChefSchedulerService } from './services/chef-scheduler.service';
+import { AutoThreadingService } from './services/auto-threading.service';
 import { OnboardingCommand } from './commands/onboarding';
 import { RankCommand } from './commands/rank';
 import { DailyCommand } from './commands/daily';
@@ -26,6 +31,11 @@ import { AiModule } from '../ai/ai.module';
     DiscordGuildService,
     DiscordSetupService,
     DiscordVerifyService,
+    ProposalVoteService,
+    ChannelModerationService,
+    XpSyncService,
+    ChefSchedulerService,
+    AutoThreadingService,
     OnboardingCommand,
     RankCommand,
     DailyCommand,

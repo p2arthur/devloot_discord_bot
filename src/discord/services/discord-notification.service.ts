@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import axios from 'axios';
+import { Client } from 'discord.js';
 import { AiService } from '../../ai/ai.service';
+import { AutoThreadingService } from './auto-threading.service';
 
 @Injectable()
 export class DiscordNotificationService implements OnModuleInit {
@@ -8,7 +10,11 @@ export class DiscordNotificationService implements OnModuleInit {
   private readonly botToken = process.env.DISCORD_BOT_TOKEN;
   private readonly channelId = process.env.DISCORD_BOUNTY_FEED_CHANNEL;
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly threadingService: AutoThreadingService,
+    private readonly client: Client,
+  ) {}
 
   private get isConfigured(): boolean {
     return !!(this.botToken && this.channelId);
@@ -69,10 +75,10 @@ export class DiscordNotificationService implements OnModuleInit {
     description: string,
     fields: { name: string; value: string; inline?: boolean }[],
     color: number,
-  ): Promise<void> {
+  ): Promise<{ status: number; data?: { id?: string } } | null> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
-      return;
+      return null;
     }
 
     try {
@@ -99,10 +105,12 @@ export class DiscordNotificationService implements OnModuleInit {
       this.logger.log(
         `Discord embed sent — status: ${response.status}, messageId: ${response.data?.id}`,
       );
+      return { status: response.status, data: response.data };
     } catch (err) {
       this.logger.error(
         `Discord embed failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
       );
+      return null;
     }
   }
 
@@ -185,12 +193,22 @@ export class DiscordNotificationService implements OnModuleInit {
       });
     }
 
-    await this.sendEmbed(
+    const response = await this.sendEmbed(
       '🎯 New Bounty Created',
       `[${owner}/${repo}](https://github.com/${owner}/${repo})`,
       fields,
       0x2ecc71,
     );
+
+    // Create auto-thread for bounty discussion
+    if (response?.data?.id && this.channelId) {
+      await this.threadingService.createBountyThread(
+        this.client,
+        this.channelId,
+        response.data.id,
+        issueTitle || `#${issueNumber}`,
+      );
+    }
   }
 
   notifyBountyClaimed(

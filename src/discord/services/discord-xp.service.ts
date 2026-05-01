@@ -12,32 +12,22 @@ export class DiscordXpService {
   ) {}
 
   async addXp(userId: string, amount: number): Promise<number> {
-    let user = await this.prisma.user.findUnique({
+    // Use upsert to safely create or update user without race conditions
+    const user = await this.prisma.user.upsert({
       where: { discordId: userId },
+      update: { xp: { increment: amount } },
+      create: {
+        discordId: userId,
+        githubId: -Date.now(), // Temporary negative ID until user onboards
+        xp: amount,
+      },
     });
 
-    if (user) {
-      user = await this.prisma.user.update({
-        where: { id: user.id },
-        data: { xp: { increment: amount } },
-      });
-      this.logger.log(`[xp] +${amount} for ${userId} → total ${user.xp} XP`);
-    } else {
-      const stubGithubId =
-        -(Date.now() % 1_000_000_000) - Math.floor(Math.random() * 1000);
-      try {
-        user = await this.prisma.user.create({
-          data: { discordId: userId, githubId: stubGithubId, xp: amount },
-        });
-      } catch {
-        user = await this.prisma.user.create({
-          data: { discordId: userId, githubId: stubGithubId - 1, xp: amount },
-        });
-      }
-      this.logger.log(
-        `[xp] Created stub user for ${userId} (githubId: ${user.githubId}), +${amount} XP`,
-      );
-    }
+    this.logger.log(
+      user.githubId < 0
+        ? `[xp] Created pending user for ${userId} (githubId: ${user.githubId}), +${amount} XP`
+        : `[xp] +${amount} for ${userId} → total ${user.xp} XP`,
+    );
 
     await this.roleService.syncTierRole(userId, user.xp);
     return user.xp;
