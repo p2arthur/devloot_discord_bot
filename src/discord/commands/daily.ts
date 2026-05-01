@@ -1,8 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Injectable } from '@nestjs/common';
-import { EmbedBuilder, Colors } from 'discord.js';
+import { Colors, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 
@@ -13,22 +10,21 @@ const MAX_STREAK_BONUS = 30;
 @Injectable()
 export class DailyCommand {
   constructor(
-    private prisma: PrismaService,
-    private xpService: DiscordXpService,
+    private readonly prisma: PrismaService,
+    private readonly xpService: DiscordXpService,
   ) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const user = await this.prisma.user.findUnique({ where: { discordId } });
 
     const now = new Date();
 
-    // Check cooldown
     if (user?.lastDailyClaim) {
       const lastClaim = new Date(user.lastDailyClaim);
       const diff = now.getTime() - lastClaim.getTime();
-      if (diff < 86400000) {
-        const hoursLeft = Math.ceil((86400000 - diff) / 3600000);
+      if (diff < 86_400_000) {
+        const hoursLeft = Math.ceil((86_400_000 - diff) / 3_600_000);
         await interaction.reply({
           content: `Daily already claimed! Come back in ${hoursLeft}h.`,
           ephemeral: true,
@@ -37,7 +33,6 @@ export class DailyCommand {
       }
     }
 
-    // Calculate streak
     let streak = await this.prisma.dailyStreak.findUnique({
       where: { userId: discordId },
     });
@@ -45,19 +40,16 @@ export class DailyCommand {
     let currentStreak = 1;
     let longestStreak = 1;
 
-    if (streak && streak.lastClaimDate) {
+    if (streak?.lastClaimDate) {
       const lastClaim = new Date(streak.lastClaimDate);
-      const hoursSince = (now.getTime() - lastClaim.getTime()) / 3600000;
+      const hoursSince = (now.getTime() - lastClaim.getTime()) / 3_600_000;
 
       if (hoursSince <= 48) {
-        // Streak continues (within 48h window)
         currentStreak = streak.currentStreak + 1;
         longestStreak = Math.max(currentStreak, streak.longestStreak);
       }
-      // Otherwise streak resets to 1
     }
 
-    // Upsert streak record
     streak = await this.prisma.dailyStreak.upsert({
       where: { userId: discordId },
       update: { currentStreak, longestStreak, lastClaimDate: now },
@@ -69,17 +61,14 @@ export class DailyCommand {
       },
     });
 
-    // Calculate XP with streak bonus
     const streakBonus = Math.min(
       (currentStreak - 1) * STREAK_BONUS_PER_DAY,
       MAX_STREAK_BONUS,
     );
     const totalXp = BASE_XP + streakBonus;
 
-    // Award XP
     await this.xpService.addXp(discordId, totalXp);
 
-    // Update lastDailyClaim on User
     await this.prisma.user.update({
       where: { discordId },
       data: { lastDailyClaim: now },

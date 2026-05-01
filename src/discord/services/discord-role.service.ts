@@ -2,6 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 
+interface DiscordMemberRecord {
+  user: { id: string };
+  roles: string[];
+}
+
+interface DiscordRoleRecord {
+  id: string;
+  name: string;
+}
+
 const TIER_ROLES = [
   { envVar: 'ROLE_LEGEND', threshold: 5000 },
   { envVar: 'ROLE_HUNTER', threshold: 2000 },
@@ -24,7 +34,7 @@ export class DiscordRoleService {
       return;
     }
 
-    const allTierRoleIds = TIER_ROLES.map((t) => process.env[t.envVar]).filter(
+    const allTierRoleIds = TIER_ROLES.map((tier) => process.env[tier.envVar]).filter(
       Boolean,
     ) as string[];
     const newcomerRoleId = process.env.ROLE_NEWCOMER;
@@ -43,16 +53,16 @@ export class DiscordRoleService {
     }
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMemberRecord>(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const currentRoles: string[] = memberRes.data.roles;
+      const currentRoles = memberRes.data.roles;
 
       const nonTierRoles = currentRoles.filter(
-        (r) => !allTierRoleIds.includes(r),
+        (roleId) => !allTierRoleIds.includes(roleId),
       );
 
       let targetRoleId: string | undefined;
@@ -81,11 +91,9 @@ export class DiscordRoleService {
         newRoles.push(targetRoleId);
       }
 
-      const currentSet = new Set(currentRoles);
-      const newSet = new Set(newRoles);
       const changed =
         currentRoles.length !== newRoles.length ||
-        [...currentSet].some((r) => !newSet.has(r));
+        currentRoles.some((roleId) => !newRoles.includes(roleId));
 
       if (!changed) {
         this.logger.debug(
@@ -96,9 +104,7 @@ export class DiscordRoleService {
 
       this.logger.log(
         `[role] Updating ${discordId}: removing old tiers, adding ${tierName} (${targetRoleId})` +
-          (bountyCount >= 2
-            ? ` [bounty override: ${bountyCount} bounties]`
-            : ''),
+          (bountyCount >= 2 ? ` [bounty override: ${bountyCount} bounties]` : ''),
       );
       await axios.patch(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
@@ -115,7 +121,7 @@ export class DiscordRoleService {
       );
     } catch (err) {
       this.logger.warn(
-        `[role] Failed to sync tier role for ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to sync tier role for ${discordId}: ${this.describeError(err)}`,
       );
     }
   }
@@ -126,13 +132,13 @@ export class DiscordRoleService {
     if (!guildId || !this.botToken || !scoutRoleId) return;
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMemberRecord>(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const currentRoles: string[] = memberRes.data.roles;
+      const currentRoles = memberRes.data.roles;
       if (currentRoles.includes(scoutRoleId)) return;
 
       currentRoles.push(scoutRoleId);
@@ -149,7 +155,7 @@ export class DiscordRoleService {
       this.logger.log(`[role] Assigned Scout role to ${discordId}`);
     } catch (err) {
       this.logger.warn(
-        `[role] Failed to assign Scout role to ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to assign Scout role to ${discordId}: ${this.describeError(err)}`,
       );
     }
   }
@@ -177,50 +183,48 @@ export class DiscordRoleService {
 
     const qualifyingDiscordIds = new Set<string>();
 
-    for (const b of createdBounties) {
+    for (const bounty of createdBounties) {
       const user = await this.prisma.user.findFirst({
-        where: { wallet: b.creatorWallet },
+        where: { wallet: bounty.creatorWallet },
       });
       if (user?.discordId) qualifyingDiscordIds.add(user.discordId);
     }
 
-    for (const b of claimedBounties) {
-      if (!b.winnerId) continue;
+    for (const bounty of claimedBounties) {
+      if (!bounty.winnerId) continue;
       const user = await this.prisma.user.findUnique({
-        where: { id: b.winnerId },
+        where: { id: bounty.winnerId },
       });
       if (user?.discordId) qualifyingDiscordIds.add(user.discordId);
     }
 
     const chefRoleId = await this.fetchRoleIdByName('Open Source Chef');
     if (!chefRoleId) {
-      this.logger.warn(
-        '[chef] Open Source Chef role not found — run /setup-server',
-      );
+      this.logger.warn('[chef] Open Source Chef role not found — run /setup-server');
       return { awarded: 0, removed: 0 };
     }
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMemberRecord[]>(
         `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const members: any[] = memberRes.data;
+      const members = memberRes.data;
 
-      const membersWithChef = members.filter((m) =>
-        m.roles.includes(chefRoleId),
+      const membersWithChef = members.filter((member) =>
+        member.roles.includes(chefRoleId),
       );
       const membersWithoutChef = members.filter(
-        (m) => !m.roles.includes(chefRoleId),
+        (member) => !member.roles.includes(chefRoleId),
       );
 
       let awarded = 0;
       let removed = 0;
 
       for (const discordId of qualifyingDiscordIds) {
-        const member = membersWithoutChef.find((m) => m.user.id === discordId);
+        const member = membersWithoutChef.find((item) => item.user.id === discordId);
         if (member) {
           const currentRoles = [...member.roles, chefRoleId];
           await axios.patch(
@@ -240,9 +244,7 @@ export class DiscordRoleService {
 
       for (const member of membersWithChef) {
         if (!qualifyingDiscordIds.has(member.user.id)) {
-          const currentRoles = member.roles.filter(
-            (r: string) => r !== chefRoleId,
-          );
+          const currentRoles = member.roles.filter((roleId) => roleId !== chefRoleId);
           await axios.patch(
             `https://discord.com/api/v10/guilds/${guildId}/members/${member.user.id}`,
             { roles: currentRoles },
@@ -266,7 +268,7 @@ export class DiscordRoleService {
       return { awarded, removed };
     } catch (err) {
       this.logger.warn(
-        `[chef] Failed weekly check: ${err?.response?.status ?? err.message}`,
+        `[chef] Failed weekly check: ${this.describeError(err)}`,
       );
       return { awarded: 0, removed: 0 };
     }
@@ -277,17 +279,24 @@ export class DiscordRoleService {
     if (!guildId || !this.botToken) return null;
 
     try {
-      const res = await axios.get(
+      const res = await axios.get<DiscordRoleRecord[]>(
         `https://discord.com/api/v10/guilds/${guildId}/roles`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const role = res.data.find((r: any) => r.name === roleName);
+      const role = res.data.find((item) => item.name === roleName);
       return role?.id ?? null;
     } catch (err) {
-      this.logger.warn(`[roles] Failed to fetch roles: ${err}`);
+      this.logger.warn(`[roles] Failed to fetch roles: ${this.describeError(err)}`);
       return null;
     }
+  }
+
+  private describeError(err: unknown): string {
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message ?? err);
+    }
+    return String(err);
   }
 }

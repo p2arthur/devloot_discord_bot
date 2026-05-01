@@ -1,6 +1,11 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, Client } from 'discord.js';
+import {
+  ChannelType,
+  ChatInputCommandInteraction,
+  Client,
+  Colors,
+  EmbedBuilder,
+} from 'discord.js';
 import { OnboardingCommand } from '../commands/onboarding';
 
 @Injectable()
@@ -9,7 +14,10 @@ export class DiscordSetupService {
 
   constructor(private readonly onboarding: OnboardingCommand) {}
 
-  async handleSetupServer(interaction: any, client: Client): Promise<void> {
+  async handleSetupServer(
+    interaction: ChatInputCommandInteraction,
+    client: Client,
+  ): Promise<void> {
     if (!interaction.memberPermissions?.has('Administrator')) {
       await interaction.reply({
         content: 'Only server admins can run this command.',
@@ -36,12 +44,10 @@ export class DiscordSetupService {
     const createdRoles: Record<string, string> = {};
     for (const roleDef of roles) {
       try {
-        const existing = guild.roles.cache.find((r) => r.name === roleDef.name);
+        const existing = guild.roles.cache.find((role) => role.name === roleDef.name);
         if (existing) {
           createdRoles[roleDef.name] = existing.id;
-          results.push(
-            `Role **${roleDef.name}** already exists (${existing.id})`,
-          );
+          results.push(`Role **${roleDef.name}** already exists (${existing.id})`);
         } else {
           const role = await guild.roles.create({
             name: roleDef.name,
@@ -53,12 +59,12 @@ export class DiscordSetupService {
           results.push(`Created role **${roleDef.name}** (${role.id})`);
         }
       } catch (err) {
-        results.push(`Failed to create role ${roleDef.name}: ${err}`);
+        results.push(`Failed to create role ${roleDef.name}: ${this.describeError(err)}`);
       }
     }
 
     const everyoneId = guild.id;
-    const verifiedId = createdRoles['Verified'];
+    const verifiedId = createdRoles.Verified!;
 
     const categories = [
       {
@@ -88,26 +94,26 @@ export class DiscordSetupService {
     for (const catDef of categories) {
       try {
         const existing = guild.channels.cache.find(
-          (c) => c?.name === catDef.name && c.type === 4,
+          (channel) => channel?.name === catDef.name,
         );
-        if (existing) {
+        if (existing && existing.type === ChannelType.GuildCategory) {
           createdCategories[catDef.name] = existing.id;
           results.push(`Category **${catDef.name}** already exists`);
         } else {
           const cat = await guild.channels.create({
             name: catDef.name,
-            type: 4,
-            permissionOverwrites: catDef.permissionOverwrites.map((p) => ({
-              id: p.id,
-              allow: p.allow,
-              deny: p.deny,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: catDef.permissionOverwrites.map((overwrite) => ({
+              id: overwrite.id,
+              allow: overwrite.allow,
+              deny: overwrite.deny,
             })),
           });
           createdCategories[catDef.name] = cat.id;
           results.push(`Created category **${catDef.name}**`);
         }
       } catch (err) {
-        results.push(`Failed to create category ${catDef.name}: ${err}`);
+        results.push(`Failed to create category ${catDef.name}: ${this.describeError(err)}`);
       }
     }
 
@@ -184,7 +190,7 @@ export class DiscordSetupService {
     for (const chDef of channels) {
       try {
         const existing = guild.channels.cache.find(
-          (c) => c?.name === chDef.name,
+          (channel) => channel?.name === chDef.name,
         );
         if (existing) {
           if ('topic' in existing && existing.topic !== chDef.topic) {
@@ -196,50 +202,47 @@ export class DiscordSetupService {
         } else {
           const ch = await guild.channels.create({
             name: chDef.name,
-            type: 0,
+            type: ChannelType.GuildText,
             topic: chDef.topic,
             parent: chDef.parent,
-            permissionOverwrites: chDef.permissions.map((p) => ({
-              id: p.id,
-              allow: p.allow || [],
-              deny: p.deny || [],
+            permissionOverwrites: chDef.permissions.map((overwrite) => ({
+              id: overwrite.id,
+              allow: overwrite.allow || [],
+              deny: overwrite.deny || [],
             })),
           });
           results.push(`Created channel **#${chDef.name}**`);
         }
       } catch (err) {
-        results.push(`Failed to create channel #${chDef.name}: ${err}`);
+        results.push(`Failed to create channel #${chDef.name}: ${this.describeError(err)}`);
       }
     }
 
     try {
       const verifyChannel = guild.channels.cache.find(
-        (c) => c?.name === '🔓-verify',
+        (channel) => channel?.name === '🔓-verify',
       );
       if (verifyChannel && 'send' in verifyChannel) {
         const messages = await verifyChannel.messages.fetch({ limit: 20 });
         const existingEmbed = messages.find(
-          (m) =>
-            m.author.id === client.user?.id &&
-            m.embeds[0]?.title === 'Welcome to DevLoot',
+          (m) => m.author.id === client.user?.id && m.embeds[0]?.title === 'Welcome to DevLoot',
         );
         if (!existingEmbed) {
-          const message = this.onboarding.buildOnboardingMessage();
-          await verifyChannel.send(message);
+          await verifyChannel.send(this.onboarding.buildOnboardingMessage());
           results.push('Posted onboarding embed in #🔓-verify');
         } else {
           results.push('Onboarding embed already exists in #🔓-verify');
         }
       }
     } catch (err) {
-      results.push(`Failed to post onboarding embed: ${err}`);
+      results.push(`Failed to post onboarding embed: ${this.describeError(err)}`);
     }
 
     const embed = new EmbedBuilder()
       .setColor(Colors.Green)
       .setTitle('Server Setup Complete')
       .setDescription(
-        results.map((r) => `• ${r}`).join('\n') +
+        results.map((result) => `• ${result}`).join('\n') +
           '\n\n**Important:** Make sure the bot role is at the TOP of the role hierarchy in Server Settings > Roles.',
       );
 
@@ -247,5 +250,12 @@ export class DiscordSetupService {
     this.logger.log(
       `[setup-server] Completed by ${interaction.user.tag}: ${results.length} items`,
     );
+  }
+
+  private describeError(err: unknown): string {
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message ?? err);
+    }
+    return String(err);
   }
 }
