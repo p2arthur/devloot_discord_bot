@@ -113,14 +113,15 @@ export class ProposeCommand {
 
       issueTitle = issueRes.data.title;
       issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: any) =>
+      issueLabels = (issueRes.data.labels || []).map((l: { name?: string } | string) =>
         typeof l === 'string' ? l : l.name,
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
       this.logger.warn(
-        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`,
+        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${status}`,
       );
-      if (err?.response?.status === 404) {
+      if (status === 404) {
         await interaction.editReply(
           'Issue not found on GitHub. Double-check the URL.',
         );

@@ -207,7 +207,7 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const members: any[] = memberRes.data;
+      const members: { roles: string[] }[] = memberRes.data;
 
       const membersWithChef = members.filter((m) =>
         m.roles.includes(chefRoleId),
@@ -283,7 +283,7 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const role = res.data.find((r: any) => r.name === roleName);
+      const role = res.data.find((r: { name: string }) => r.name === roleName);
       return role?.id ?? null;
     } catch (err) {
       this.logger.warn(`[roles] Failed to fetch roles: ${err}`);

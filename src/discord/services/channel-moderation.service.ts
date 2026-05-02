@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Message, TextChannel } from 'discord.js';
-import { QUEST_POOL } from '../commands/quest';
 
 @Injectable()
 export class ChannelModerationService {
@@ -48,14 +47,25 @@ export class ChannelModerationService {
       return;
     }
 
-    // Check quest channels
-    for (const quest of QUEST_POOL) {
-      if (quest.channelId && message.channelId === quest.channelId) {
-        this.logger.log(
-          `[msg] ${message.author.tag} posted in quest channel ${quest.id}`,
+    // 💡-proposals channel — only /propose command allowed
+    const proposalsChannelName = '💡-proposals';
+    const channelName = (message.channel as TextChannel).name;
+    if (channelName === proposalsChannelName) {
+      this.logger.log(
+        `[msg] Deleting message from ${message.author.tag} in proposals channel`,
+      );
+      try {
+        await message.delete();
+        const warning = await (message.channel as TextChannel).send(
+          `${message.author}, use \`/propose\` to post in this channel.`,
         );
-        // Note: Quest auto-completion is handled by the quest service
+        setTimeout(() => void warning.delete().catch(() => {}), 5000);
+      } catch (err) {
+        this.logger.warn(
+          `[msg] Failed to delete message in proposals channel: ${err}`,
+        );
       }
+      return;
     }
   }
 }

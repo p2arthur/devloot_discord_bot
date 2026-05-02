@@ -17,7 +17,7 @@ export class DiscordGuildService {
     try {
       const guild = await this.client.guilds.fetch(guildId);
       const channels = await guild.channels.fetch();
-      const channel = channels.find((c: any) => c?.name === channelName);
+      const channel = channels.find((c) => c?.name === channelName);
       return channel?.id ?? null;
     } catch (err) {
       this.logger.warn(

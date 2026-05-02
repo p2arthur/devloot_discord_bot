@@ -11,6 +11,8 @@ import { ChannelModerationService } from './services/channel-moderation.service'
 import { XpSyncService } from './services/xp-sync.service';
 import { ChefSchedulerService } from './services/chef-scheduler.service';
 import { AutoThreadingService } from './services/auto-threading.service';
+import { CommandDispatcherService } from './services/command-dispatcher.service';
+import { WelcomeService } from './services/welcome.service';
 import { OnboardingCommand } from './commands/onboarding';
 import { RankCommand } from './commands/rank';
 import { DailyCommand } from './commands/daily';
@@ -36,6 +38,8 @@ import { AiModule } from '../ai/ai.module';
     XpSyncService,
     ChefSchedulerService,
     AutoThreadingService,
+    CommandDispatcherService,
+    WelcomeService,
     OnboardingCommand,
     RankCommand,
     DailyCommand,

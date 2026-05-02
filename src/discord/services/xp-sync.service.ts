@@ -32,7 +32,7 @@ export class XpSyncService {
       });
       if (!user) continue;
 
-      const xp = group._count.id * 50;
+      const xp = group._count.id * 100;
       await this.xpService.addXpByUserId(user.id, xp);
       usersUpdated++;
       totalXpAwarded += xp;
@@ -44,7 +44,7 @@ export class XpSyncService {
       });
       if (!user || !user.discordId) continue;
 
-      const xp = group._count.id * 100;
+      const xp = group._count.id * 200;
       await this.xpService.addXp(user.discordId, xp);
       usersUpdated++;
       totalXpAwarded += xp;
