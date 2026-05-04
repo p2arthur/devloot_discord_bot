@@ -15,7 +15,6 @@ import {
   MessageReaction,
   User,
 } from 'discord.js';
-import { PrismaService } from '../prisma/prisma.service';
 import { DiscordGuildService } from './services/discord-guild.service';
 import { DiscordVerifyService } from './handlers/discord-verify.service';
 import { ProposalVoteService } from './services/proposal-vote.service';
@@ -23,7 +22,7 @@ import { ChannelModerationService } from './services/channel-moderation.service'
 import { ChefSchedulerService } from './services/chef-scheduler.service';
 import { CommandDispatcherService } from './services/command-dispatcher.service';
 import { WelcomeService } from './services/welcome.service';
-import { QuestCommand, QUEST_POOL } from './commands/quest';
+import { QuestCommand } from './commands/quest';
 
 @Injectable()
 export class DiscordGateway implements OnModuleInit {
@@ -70,7 +69,7 @@ export class DiscordGateway implements OnModuleInit {
       new SlashCommandBuilder().setName('propose').setDescription('Suggest a GitHub issue for a bounty')
         .addStringOption((o) => o.setName('message').setDescription('Short pitch for why this issue matters').setRequired(true))
         .addStringOption((o) => o.setName('issue_url').setDescription('GitHub issue URL').setRequired(true))
-        .addNumberOption((o) => o.setName('bounty_amount').setDescription('Suggested bounty in USDC').setRequired(true)),
+        .addNumberOption((o) => o.setName('bounty_amount').setDescription('Suggested bounty in USDC').setRequired(true).setMinValue(1)),
       new SlashCommandBuilder().setName('daily').setDescription('Claim your daily XP reward'),
       new SlashCommandBuilder().setName('rank').setDescription('Check your current XP and tier'),
       new SlashCommandBuilder().setName('quests').setDescription('View available quests'),

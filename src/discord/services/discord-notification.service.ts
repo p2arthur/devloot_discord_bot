@@ -149,7 +149,7 @@ export class DiscordNotificationService implements OnModuleInit {
       );
       issueTitle = issueRes.data.title || '';
       const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map((l: { name?: string } | string) =>
+      const issueLabels = (issueRes.data.labels || []).map((l: { name: string } | string) =>
         typeof l === 'string' ? l : l.name,
       );
 

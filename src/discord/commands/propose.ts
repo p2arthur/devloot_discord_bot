@@ -113,7 +113,7 @@ export class ProposeCommand {
 
       issueTitle = issueRes.data.title;
       issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: { name?: string } | string) =>
+      issueLabels = (issueRes.data.labels || []).map((l: { name: string } | string) =>
         typeof l === 'string' ? l : l.name,
       );
     } catch (err: unknown) {

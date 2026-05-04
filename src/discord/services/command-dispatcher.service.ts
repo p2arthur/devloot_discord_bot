@@ -2,13 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   ChatInputCommandInteraction,
   MessageFlags,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { DiscordVerifyService } from '../handlers/discord-verify.service';
 import { DiscordSetupService } from '../handlers/discord-setup.service';
 import { ProposeCommand } from '../commands/propose';
 import { DailyCommand } from '../commands/daily';
 import { RankCommand } from '../commands/rank';
-import { QuestCommand, QUEST_POOL } from '../commands/quest';
+import { QuestCommand } from '../commands/quest';
 import { ProposalsCommand } from '../commands/proposals';
 import { OnboardingCommand } from '../commands/onboarding';
 import { LeaderboardCommand } from '../commands/leaderboard';
@@ -114,6 +115,11 @@ export class CommandDispatcherService {
           await this.leaderboard.handle(interaction);
           break;
         case 'sync-points':
+          // Admin only - check permission
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+            await interaction.reply({ content: '❌ Admin only command', flags: MessageFlags.Ephemeral });
+            return;
+          }
           this.logger.log(`[/sync-points] ${discordId} triggering XP sync`);
           await this.handleSyncPoints(interaction);
           break;
