@@ -1,7 +1,35 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, Client } from 'discord.js';
+import {
+  ChannelType,
+  ChatInputCommandInteraction,
+  Client,
+  Colors,
+  EmbedBuilder,
+  GuildBasedChannel,
+  MessageFlags,
+  PermissionFlagsBits,
+  PermissionResolvable,
+  TextChannel,
+} from 'discord.js';
 import { OnboardingCommand } from '../commands/onboarding';
+
+interface ChannelPermission {
+  id: string;
+  allow?: PermissionResolvable;
+  deny?: PermissionResolvable;
+}
+
+interface CategoryDefinition {
+  name: string;
+  permissionOverwrites: ChannelPermission[];
+}
+
+interface TextChannelDefinition {
+  name: string;
+  topic: string;
+  parent?: string;
+  permissions: ChannelPermission[];
+}
 
 @Injectable()
 export class DiscordSetupService {
@@ -9,16 +37,21 @@ export class DiscordSetupService {
 
   constructor(private readonly onboarding: OnboardingCommand) {}
 
-  async handleSetupServer(interaction: any, client: Client): Promise<void> {
-    if (!interaction.memberPermissions?.has('Administrator')) {
+  async handleSetupServer(
+    interaction: ChatInputCommandInteraction,
+    client: Client,
+  ): Promise<void> {
+    if (
+      !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    ) {
       await interaction.reply({
         content: 'Only server admins can run this command.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guild = interaction.guild;
     if (!guild) {
@@ -59,8 +92,14 @@ export class DiscordSetupService {
 
     const everyoneId = guild.id;
     const verifiedId = createdRoles['Verified'];
+    if (!verifiedId) {
+      await interaction.editReply(
+        'Could not create or find the Verified role. Check bot permissions and try again.',
+      );
+      return;
+    }
 
-    const categories = [
+    const categories: CategoryDefinition[] = [
       {
         name: '🚪 ONBOARDING',
         permissionOverwrites: [
@@ -88,7 +127,8 @@ export class DiscordSetupService {
     for (const catDef of categories) {
       try {
         const existing = guild.channels.cache.find(
-          (c) => c?.name === catDef.name && c.type === 4,
+          (c) =>
+            c?.name === catDef.name && c.type === ChannelType.GuildCategory,
         );
         if (existing) {
           createdCategories[catDef.name] = existing.id;
@@ -96,11 +136,11 @@ export class DiscordSetupService {
         } else {
           const cat = await guild.channels.create({
             name: catDef.name,
-            type: 4,
+            type: ChannelType.GuildCategory,
             permissionOverwrites: catDef.permissionOverwrites.map((p) => ({
               id: p.id,
-              allow: p.allow,
-              deny: p.deny,
+              allow: p.allow ?? [],
+              deny: p.deny ?? [],
             })),
           });
           createdCategories[catDef.name] = cat.id;
@@ -111,7 +151,7 @@ export class DiscordSetupService {
       }
     }
 
-    const channels = [
+    const channels: TextChannelDefinition[] = [
       {
         name: '🔓-verify',
         topic:
@@ -187,16 +227,16 @@ export class DiscordSetupService {
           (c) => c?.name === chDef.name,
         );
         if (existing) {
-          if ('topic' in existing && existing.topic !== chDef.topic) {
+          if (this.isTextChannel(existing) && existing.topic !== chDef.topic) {
             await existing.edit({ topic: chDef.topic });
             results.push(`Updated topic on **#${chDef.name}**`);
           } else {
             results.push(`Channel **#${chDef.name}** already exists`);
           }
         } else {
-          const ch = await guild.channels.create({
+          await guild.channels.create({
             name: chDef.name,
-            type: 0,
+            type: ChannelType.GuildText,
             topic: chDef.topic,
             parent: chDef.parent,
             permissionOverwrites: chDef.permissions.map((p) => ({
@@ -213,23 +253,11 @@ export class DiscordSetupService {
     }
 
     try {
-      const verifyChannel = guild.channels.cache.find(
-        (c) => c?.name === '🔓-verify',
-      );
-      if (verifyChannel && 'send' in verifyChannel) {
-        const messages = await verifyChannel.messages.fetch({ limit: 20 });
-        const existingEmbed = messages.find(
-          (m) =>
-            m.author.id === client.user?.id &&
-            m.embeds[0]?.title === 'Welcome to DevLoot',
-        );
-        if (!existingEmbed) {
-          const message = this.onboarding.buildOnboardingMessage();
-          await verifyChannel.send(message);
-          results.push('Posted onboarding embed in #🔓-verify');
-        } else {
-          results.push('Onboarding embed already exists in #🔓-verify');
-        }
+      const posted = await this.ensureVerifyChannel(client);
+      if (posted) {
+        results.push('Posted onboarding embed in #🔓-verify');
+      } else {
+        results.push('Onboarding embed already exists in #🔓-verify');
       }
     } catch (err) {
       results.push(`Failed to post onboarding embed: ${err}`);
@@ -247,5 +275,61 @@ export class DiscordSetupService {
     this.logger.log(
       `[setup-server] Completed by ${interaction.user.tag}: ${results.length} items`,
     );
+  }
+
+  async ensureVerifyChannel(client: Client): Promise<boolean> {
+    const guildId = process.env.DISCORD_GUILD_ID;
+    if (!guildId) {
+      this.logger.warn(
+        '[welcome] DISCORD_GUILD_ID not set — skipping verify channel setup',
+      );
+      return false;
+    }
+
+    try {
+      const guild = await client.guilds.fetch(guildId);
+      const channels = await guild.channels.fetch();
+      const verifyChannel = channels.find((c) => c?.name === '🔓-verify');
+      if (!this.isTextChannel(verifyChannel)) {
+        this.logger.log(
+          '[welcome] #🔓-verify channel not found — skipping (run /setup-server first)',
+        );
+        return false;
+      }
+
+      const messages = await verifyChannel.messages.fetch({ limit: 20 });
+      const existingBot = messages.find(
+        (message) =>
+          message.author.id === client.user?.id &&
+          message.embeds[0]?.title === 'Welcome to DevLoot',
+      );
+
+      if (existingBot) {
+        this.logger.log(
+          '[welcome] Onboarding message already exists in #🔓-verify',
+        );
+        return false;
+      }
+
+      const message = this.onboarding.buildOnboardingMessage();
+      await verifyChannel.send(message);
+      this.logger.log('[welcome] Posted onboarding message to #🔓-verify');
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `[welcome] Could not setup verify channel: ${this.formatError(error)}`,
+      );
+      return false;
+    }
+  }
+
+  private isTextChannel(
+    channel: GuildBasedChannel | null | undefined,
+  ): channel is TextChannel {
+    return channel?.type === ChannelType.GuildText;
+  }
+
+  private formatError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 }

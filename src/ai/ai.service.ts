@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 
+interface ChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+}
+
 @Injectable()
 export class AiService {
   private readonly apiKey = process.env.OPENROUTER_API_KEY;
@@ -37,7 +45,7 @@ Provide:
 3. Suggested USDC bounty range
 4. Key technical considerations for potential solvers`;
 
-    const response = await axios.post(
+    const response = await axios.post<ChatCompletionResponse>(
       this.baseUrl,
       {
         model: this.model,
@@ -47,7 +55,7 @@ Provide:
       { headers: { Authorization: `Bearer ${this.apiKey}` } },
     );
 
-    return response.data.choices[0].message.content;
+    return this.getCompletionContent(response.data);
   }
 
   async generateSuggestionSummary(data: {
@@ -71,7 +79,7 @@ PARAGRAPH 2: One sentence about why this specific issue matters or what it solve
 
 Be direct. No preamble. No markdown.`;
 
-    const response = await axios.post(
+    const response = await axios.post<ChatCompletionResponse>(
       this.baseUrl,
       {
         model: this.model,
@@ -81,8 +89,8 @@ Be direct. No preamble. No markdown.`;
       { headers: { Authorization: `Bearer ${this.apiKey}` } },
     );
 
-    const raw = response.data.choices[0].message.content;
-    const parts = raw.split('|||').map((s: string) => s.trim());
+    const raw = this.getCompletionContent(response.data);
+    const parts = raw.split('|||').map((part) => part.trim());
     return {
       repoDescription: parts[0] || raw,
       issueDescription: parts[1] || '',
@@ -99,12 +107,12 @@ Be direct. No preamble. No markdown.`;
     const prompt = `Generate a 3-4 sentence weekly summary for a Discord community digest.
 
 Top contributors: ${data.topContributors.map((c) => `${c.name} (${c.xp} XP)`).join(', ')}
-Top proposals: ${data.topProposals.map((p) => `${p.title} (${p.upvotes})`)}
+Top proposals: ${data.topProposals.map((p) => `${p.title} (${p.upvotes})`).join(', ')}
 Stats: ${data.totalProposals} proposals, ${data.totalVotes} votes, ${data.bountiesCompleted} bounties completed.
 
 Keep it concise, enthusiastic, and focused on community momentum.`;
 
-    const response = await axios.post(
+    const response = await axios.post<ChatCompletionResponse>(
       this.baseUrl,
       {
         model: this.model,
@@ -114,6 +122,10 @@ Keep it concise, enthusiastic, and focused on community momentum.`;
       { headers: { Authorization: `Bearer ${this.apiKey}` } },
     );
 
-    return response.data.choices[0].message.content;
+    return this.getCompletionContent(response.data);
+  }
+
+  private getCompletionContent(response: ChatCompletionResponse): string {
+    return response.choices?.[0]?.message?.content ?? '';
   }
 }

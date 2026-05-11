@@ -1,6 +1,21 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import axios from 'axios';
 import { AiService } from '../../ai/ai.service';
+import { DiscordThreadService } from './discord-thread.service';
+
+interface DiscordMessageResponse {
+  id?: string;
+}
+
+interface GithubLabel {
+  name?: string;
+}
+
+interface GithubIssueResponse {
+  title?: string;
+  body?: string | null;
+  labels?: Array<string | GithubLabel>;
+}
 
 @Injectable()
 export class DiscordNotificationService implements OnModuleInit {
@@ -8,7 +23,10 @@ export class DiscordNotificationService implements OnModuleInit {
   private readonly botToken = process.env.DISCORD_BOT_TOKEN;
   private readonly channelId = process.env.DISCORD_BOUNTY_FEED_CHANNEL;
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly threadService: DiscordThreadService,
+  ) {}
 
   private get isConfigured(): boolean {
     return !!(this.botToken && this.channelId);
@@ -38,7 +56,7 @@ export class DiscordNotificationService implements OnModuleInit {
     );
 
     try {
-      const response = await axios.post(
+      const response = await axios.post<DiscordMessageResponse>(
         `https://discord.com/api/v10/channels/${this.channelId}/messages`,
         { content },
         {
@@ -51,9 +69,9 @@ export class DiscordNotificationService implements OnModuleInit {
       this.logger.log(
         `Discord message sent — status: ${response.status}, messageId: ${response.data?.id}`,
       );
-    } catch (err) {
+    } catch (error) {
       this.logger.error(
-        `Discord notification failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord notification failed: ${this.formatError(error)}`,
       );
     }
   }
@@ -69,14 +87,14 @@ export class DiscordNotificationService implements OnModuleInit {
     description: string,
     fields: { name: string; value: string; inline?: boolean }[],
     color: number,
-  ): Promise<void> {
+  ): Promise<string | null> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
-      return;
+      return null;
     }
 
     try {
-      const response = await axios.post(
+      const response = await axios.post<DiscordMessageResponse>(
         `https://discord.com/api/v10/channels/${this.channelId}/messages`,
         {
           embeds: [
@@ -99,10 +117,10 @@ export class DiscordNotificationService implements OnModuleInit {
       this.logger.log(
         `Discord embed sent — status: ${response.status}, messageId: ${response.data?.id}`,
       );
-    } catch (err) {
-      this.logger.error(
-        `Discord embed failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
-      );
+      return response.data.id ?? null;
+    } catch (error) {
+      this.logger.error(`Discord embed failed: ${this.formatError(error)}`);
+      return null;
     }
   }
 
@@ -133,16 +151,16 @@ export class DiscordNotificationService implements OnModuleInit {
     } | null = null;
 
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GithubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
         },
       );
-      issueTitle = issueRes.data.title || '';
-      const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
+      issueTitle = issueRes.data.title ?? '';
+      const issueBody = issueRes.data.body ?? '';
+      const issueLabels = (issueRes.data.labels ?? []).map((label) =>
+        typeof label === 'string' ? label : (label.name ?? ''),
       );
 
       aiSummary = await this.aiService.generateSuggestionSummary({
@@ -152,9 +170,9 @@ export class DiscordNotificationService implements OnModuleInit {
         labels: issueLabels,
         issueBody,
       });
-    } catch (err) {
+    } catch (error) {
       this.logger.warn(
-        `[bounty-feed] Failed to fetch issue or generate AI summary: ${err}`,
+        `[bounty-feed] Failed to fetch issue or generate AI summary: ${this.formatError(error)}`,
       );
     }
 
@@ -185,12 +203,20 @@ export class DiscordNotificationService implements OnModuleInit {
       });
     }
 
-    await this.sendEmbed(
+    const messageId = await this.sendEmbed(
       '🎯 New Bounty Created',
       `[${owner}/${repo}](https://github.com/${owner}/${repo})`,
       fields,
       0x2ecc71,
     );
+
+    if (messageId && this.channelId) {
+      await this.threadService.createBountyThread(
+        this.channelId,
+        messageId,
+        issueTitle || `${owner}/${repo}#${issueNumber}`,
+      );
+    }
   }
 
   notifyBountyClaimed(
@@ -234,5 +260,12 @@ export class DiscordNotificationService implements OnModuleInit {
     void this.sendMessage(
       `💸 **Bounty topped up:** [#${bountyId}](${issueUrl})\n+${added} USDC → total **${total} USDC**`,
     );
+  }
+
+  private formatError(error: unknown): string {
+    if (axios.isAxiosError(error)) {
+      return `status: ${error.response?.status ?? 'unknown'}, body: ${JSON.stringify(error.response?.data ?? error.message)}`;
+    }
+    return error instanceof Error ? error.message : String(error);
   }
 }

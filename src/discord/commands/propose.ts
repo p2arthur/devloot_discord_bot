@@ -4,17 +4,30 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChatInputCommandInteraction,
   Client,
   TextChannel,
 } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 import { DiscordRoleService } from '../services/discord-role.service';
+import { DiscordThreadService } from '../services/discord-thread.service';
 import { AiService } from '../../ai/ai.service';
 import axios from 'axios';
 
 const ISSUE_URL_REGEX =
   /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
+
+interface GithubLabel {
+  name?: string;
+}
+
+interface GithubIssueResponse {
+  state?: string;
+  title?: string;
+  body?: string | null;
+  labels?: Array<string | GithubLabel>;
+}
 
 @Injectable()
 export class ProposeCommand {
@@ -24,16 +37,17 @@ export class ProposeCommand {
     private prisma: PrismaService,
     private xpService: DiscordXpService,
     private roleService: DiscordRoleService,
+    private threadService: DiscordThreadService,
     private aiService: AiService,
   ) {}
 
   async handle(
-    interaction: any,
+    interaction: ChatInputCommandInteraction,
     message: string,
     issueUrl: string,
     bountyAmountUsdc: number,
     client: Client,
-  ) {
+  ): Promise<void> {
     const match = issueUrl.match(ISSUE_URL_REGEX);
     if (!match) {
       await interaction.reply({
@@ -94,30 +108,32 @@ export class ProposeCommand {
     let issueBody = '';
     let issueLabels: string[] = [];
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GithubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
         },
       );
 
-      if (issueRes.data.state !== 'open') {
+      const issue = issueRes.data;
+      if (issue.state !== 'open') {
         await interaction.editReply(
           'This issue is closed. Only open issues can be proposed.',
         );
         return;
       }
 
-      issueTitle = issueRes.data.title;
-      issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
+      issueTitle = issue.title ?? '';
+      issueBody = issue.body ?? '';
+      issueLabels = (issue.labels ?? []).map((label) =>
+        typeof label === 'string' ? label : (label.name ?? ''),
       );
-    } catch (err: any) {
+    } catch (err) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
       this.logger.warn(
-        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`,
+        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${status ?? 'unknown'}`,
       );
-      if (err?.response?.status === 404) {
+      if (status === 404) {
         await interaction.editReply(
           'Issue not found on GitHub. Double-check the URL.',
         );
@@ -276,6 +292,7 @@ export class ProposeCommand {
     const suggestionsChannelId =
       process.env.DISCORD_BOUNTY_SUGGESTIONS_CHANNEL_ID;
     let channelMessageId: string | null = null;
+    let threadCreated = false;
     if (suggestionsChannelId) {
       try {
         const channel = (await client.channels.fetch(
@@ -291,6 +308,10 @@ export class ProposeCommand {
           await channelMsg.react('👍');
           await channelMsg.react('👎');
           await channelMsg.react('💵');
+          threadCreated = await this.threadService.createProposalThread(
+            channelMsg,
+            issueTitle,
+          );
         }
       } catch (err) {
         this.logger.warn(
@@ -327,7 +348,7 @@ export class ProposeCommand {
     if (channelMessageId) {
       await this.prisma.proposal.update({
         where: { id: proposal.id },
-        data: { messageId: channelMessageId },
+        data: { messageId: channelMessageId, threadCreated },
       });
     }
 

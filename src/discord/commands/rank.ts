@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { EmbedBuilder, Colors } from 'discord.js';
+import { ChatInputCommandInteraction, Colors, EmbedBuilder } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class RankCommand {
   constructor(private prisma: PrismaService) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const user = await this.prisma.user.findUnique({ where: { discordId } });
 
