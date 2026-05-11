@@ -2,6 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 
+interface DiscordMemberApi {
+  user: { id: string };
+  roles: string[];
+}
+
+interface DiscordRoleApi {
+  id: string;
+  name: string;
+}
+
 const TIER_ROLES = [
   { envVar: 'ROLE_LEGEND', threshold: 5000 },
   { envVar: 'ROLE_HUNTER', threshold: 2000 },
@@ -43,7 +53,7 @@ export class DiscordRoleService {
     }
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMemberApi>(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
@@ -115,7 +125,7 @@ export class DiscordRoleService {
       );
     } catch (err) {
       this.logger.warn(
-        `[role] Failed to sync tier role for ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to sync tier role for ${discordId}: ${this.formatError(err)}`,
       );
     }
   }
@@ -126,7 +136,7 @@ export class DiscordRoleService {
     if (!guildId || !this.botToken || !scoutRoleId) return;
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMemberApi>(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
@@ -149,7 +159,7 @@ export class DiscordRoleService {
       this.logger.log(`[role] Assigned Scout role to ${discordId}`);
     } catch (err) {
       this.logger.warn(
-        `[role] Failed to assign Scout role to ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to assign Scout role to ${discordId}: ${this.formatError(err)}`,
       );
     }
   }
@@ -201,13 +211,13 @@ export class DiscordRoleService {
     }
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMemberApi[]>(
         `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const members: any[] = memberRes.data;
+      const members = memberRes.data;
 
       const membersWithChef = members.filter((m) =>
         m.roles.includes(chefRoleId),
@@ -265,9 +275,7 @@ export class DiscordRoleService {
       );
       return { awarded, removed };
     } catch (err) {
-      this.logger.warn(
-        `[chef] Failed weekly check: ${err?.response?.status ?? err.message}`,
-      );
+      this.logger.warn(`[chef] Failed weekly check: ${this.formatError(err)}`);
       return { awarded: 0, removed: 0 };
     }
   }
@@ -277,17 +285,24 @@ export class DiscordRoleService {
     if (!guildId || !this.botToken) return null;
 
     try {
-      const res = await axios.get(
+      const res = await axios.get<DiscordRoleApi[]>(
         `https://discord.com/api/v10/guilds/${guildId}/roles`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const role = res.data.find((r: any) => r.name === roleName);
+      const role = res.data.find((r) => r.name === roleName);
       return role?.id ?? null;
     } catch (err) {
       this.logger.warn(`[roles] Failed to fetch roles: ${err}`);
       return null;
     }
+  }
+
+  private formatError(error: unknown): string {
+    if (axios.isAxiosError(error)) {
+      return `${error.response?.status ?? 'unknown'} ${JSON.stringify(error.response?.data ?? error.message)}`;
+    }
+    return error instanceof Error ? error.message : String(error);
   }
 }

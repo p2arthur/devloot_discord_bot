@@ -23,20 +23,10 @@ export class DiscordXpService {
       });
       this.logger.log(`[xp] +${amount} for ${userId} → total ${user.xp} XP`);
     } else {
-      const stubGithubId =
-        -(Date.now() % 1_000_000_000) - Math.floor(Math.random() * 1000);
-      try {
-        user = await this.prisma.user.create({
-          data: { discordId: userId, githubId: stubGithubId, xp: amount },
-        });
-      } catch {
-        user = await this.prisma.user.create({
-          data: { discordId: userId, githubId: stubGithubId - 1, xp: amount },
-        });
-      }
-      this.logger.log(
-        `[xp] Created stub user for ${userId} (githubId: ${user.githubId}), +${amount} XP`,
+      this.logger.warn(
+        `[xp] Skipping +${amount} for ${userId} — no linked user record`,
       );
+      return 0;
     }
 
     await this.roleService.syncTierRole(userId, user.xp);
