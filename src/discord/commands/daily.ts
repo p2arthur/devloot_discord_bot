@@ -1,8 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Injectable } from '@nestjs/common';
-import { EmbedBuilder, Colors } from 'discord.js';
+import { ChatInputCommandInteraction, Colors, EmbedBuilder } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 
@@ -17,7 +14,7 @@ export class DailyCommand {
     private xpService: DiscordXpService,
   ) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction) {
     const discordId = interaction.user.id;
     const user = await this.prisma.user.findUnique({ where: { discordId } });
 

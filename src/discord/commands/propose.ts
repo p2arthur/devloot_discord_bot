@@ -6,6 +6,7 @@ import {
   ButtonStyle,
   Client,
   TextChannel,
+  ChatInputCommandInteraction,
 } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
@@ -28,7 +29,7 @@ export class ProposeCommand {
   ) {}
 
   async handle(
-    interaction: any,
+    interaction: ChatInputCommandInteraction,
     message: string,
     issueUrl: string,
     bountyAmountUsdc: number,
@@ -101,23 +102,31 @@ export class ProposeCommand {
         },
       );
 
-      if (issueRes.data.state !== 'open') {
+      const data = issueRes.data as {
+        state: string;
+        title: string;
+        body: string;
+        labels?: ({ name?: string } | string)[];
+      };
+
+      if (data.state !== 'open') {
         await interaction.editReply(
           'This issue is closed. Only open issues can be proposed.',
         );
         return;
       }
 
-      issueTitle = issueRes.data.title;
-      issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
+      issueTitle = data.title;
+      issueBody = data.body || '';
+      issueLabels = (data.labels || []).map((l: { name?: string } | string) =>
+        typeof l === 'string' ? l : (l.name ?? ''),
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
       this.logger.warn(
-        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`,
+        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${status}`,
       );
-      if (err?.response?.status === 404) {
+      if (status === 404) {
         await interaction.editReply(
           'Issue not found on GitHub. Double-check the URL.',
         );
@@ -291,6 +300,21 @@ export class ProposeCommand {
           await channelMsg.react('👍');
           await channelMsg.react('👎');
           await channelMsg.react('💵');
+
+          if (!proposal.threadCreated) {
+            try {
+              await channelMsg.startThread({
+                name: `[Proposal] ${issueTitle}`.slice(0, 100),
+                autoArchiveDuration: 10080,
+              });
+              await this.prisma.proposal.update({
+                where: { id: proposal.id },
+                data: { threadCreated: true, messageId: channelMessageId },
+              });
+            } catch (err) {
+              this.logger.warn(`[propose] Failed to create thread: ${err}`);
+            }
+          }
         }
       } catch (err) {
         this.logger.warn(
@@ -323,8 +347,8 @@ export class ProposeCommand {
 
     await interaction.editReply({ embeds: [replyEmbed] });
 
-    // Store channel message ID for vote tracking
-    if (channelMessageId) {
+    // Store channel message ID for vote tracking if not already stored
+    if (channelMessageId && !proposal.threadCreated) {
       await this.prisma.proposal.update({
         where: { id: proposal.id },
         data: { messageId: channelMessageId },

@@ -1,7 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, MessageFlags } from 'discord.js';
+import {
+  EmbedBuilder,
+  Colors,
+  MessageFlags,
+  ButtonInteraction,
+} from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordRoleService } from '../services/discord-role.service';
 import { DiscordGuildService } from '../services/discord-guild.service';
@@ -21,7 +24,7 @@ export class DiscordVerifyService {
     return !!(user?.onboarded && user?.githubId);
   }
 
-  async handleVerify(interaction: any): Promise<void> {
+  async handleVerify(interaction: ButtonInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const userTag = interaction.user.tag;
 

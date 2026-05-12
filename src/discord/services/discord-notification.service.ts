@@ -69,10 +69,10 @@ export class DiscordNotificationService implements OnModuleInit {
     description: string,
     fields: { name: string; value: string; inline?: boolean }[],
     color: number,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
-      return;
+      return undefined;
     }
 
     try {
@@ -99,10 +99,13 @@ export class DiscordNotificationService implements OnModuleInit {
       this.logger.log(
         `Discord embed sent — status: ${response.status}, messageId: ${response.data?.id}`,
       );
-    } catch (err) {
+      return response.data?.id as string | undefined;
+    } catch (err: unknown) {
+      const e = err as any;
       this.logger.error(
-        `Discord embed failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord embed failed — status: ${e?.response?.status}, body: ${JSON.stringify(e?.response?.data)}, message: ${e.message}`,
       );
+      return undefined;
     }
   }
 
@@ -141,8 +144,8 @@ export class DiscordNotificationService implements OnModuleInit {
       );
       issueTitle = issueRes.data.title || '';
       const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
+      const issueLabels = (issueRes.data.labels || []).map(
+        (l: { name?: string }) => (typeof l === 'string' ? l : (l.name ?? '')),
       );
 
       aiSummary = await this.aiService.generateSuggestionSummary({
@@ -185,12 +188,34 @@ export class DiscordNotificationService implements OnModuleInit {
       });
     }
 
-    await this.sendEmbed(
+    const messageId = await this.sendEmbed(
       '🎯 New Bounty Created',
       `[${owner}/${repo}](https://github.com/${owner}/${repo})`,
       fields,
       0x2ecc71,
     );
+
+    if (messageId) {
+      try {
+        await axios.post(
+          `https://discord.com/api/v10/channels/${this.channelId}/messages/${messageId}/threads`,
+          {
+            name: `Bounty — ${issueTitle || issueNumber}`.slice(0, 100),
+            auto_archive_duration: 10080,
+          },
+          {
+            headers: {
+              Authorization: `Bot ${this.botToken}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+      } catch (err: unknown) {
+        this.logger.warn(
+          `[bounty-feed] Failed to create thread for message ${messageId}: ${err}`,
+        );
+      }
+    }
   }
 
   notifyBountyClaimed(

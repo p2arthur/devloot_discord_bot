@@ -14,6 +14,10 @@ import { ProposeCommand } from './commands/propose';
 import { ProposalsCommand } from './commands/proposals';
 import { LeaderboardCommand } from './commands/leaderboard';
 import { AiModule } from '../ai/ai.module';
+import { ProposalVoteService } from './services/proposal-vote.service';
+import { ChannelModerationService } from './services/channel-moderation.service';
+import { XpSyncService } from './services/xp-sync.service';
+import { ChefSchedulerService } from './services/chef-scheduler.service';
 
 @Global()
 @Module({
@@ -33,6 +37,10 @@ import { AiModule } from '../ai/ai.module';
     ProposeCommand,
     ProposalsCommand,
     LeaderboardCommand,
+    ProposalVoteService,
+    ChannelModerationService,
+    XpSyncService,
+    ChefSchedulerService,
   ],
   exports: [DiscordNotificationService, DiscordXpService],
 })

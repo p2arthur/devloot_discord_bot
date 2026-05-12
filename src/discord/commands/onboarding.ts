@@ -5,6 +5,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  ChatInputCommandInteraction,
 } from 'discord.js';
 
 @Injectable()
@@ -42,7 +43,7 @@ export class OnboardingCommand {
     return { embeds: [embed], components: [buttons] };
   }
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction) {
     const message = this.buildOnboardingMessage(interaction.user.id);
     await interaction.reply({ ...message, flags: MessageFlags.Ephemeral });
   }
