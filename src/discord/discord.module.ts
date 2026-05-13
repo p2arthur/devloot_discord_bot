@@ -4,6 +4,12 @@ import { DiscordNotificationService } from './services/discord-notification.serv
 import { DiscordXpService } from './services/discord-xp.service';
 import { DiscordRoleService } from './services/discord-role.service';
 import { DiscordGuildService } from './services/discord-guild.service';
+import { DiscordCommandRegistryService } from './services/discord-command-registry.service';
+import { DiscordInteractionRouterService } from './services/discord-interaction-router.service';
+import { ProposalVoteService } from './services/proposal-vote.service';
+import { ChannelModerationService } from './services/channel-moderation.service';
+import { ChefSchedulerService } from './services/chef-scheduler.service';
+import { XpSyncService } from './services/xp-sync.service';
 import { DiscordSetupService } from './handlers/discord-setup.service';
 import { DiscordVerifyService } from './handlers/discord-verify.service';
 import { OnboardingCommand } from './commands/onboarding';
@@ -24,6 +30,12 @@ import { AiModule } from '../ai/ai.module';
     DiscordXpService,
     DiscordRoleService,
     DiscordGuildService,
+    DiscordCommandRegistryService,
+    DiscordInteractionRouterService,
+    ProposalVoteService,
+    ChannelModerationService,
+    ChefSchedulerService,
+    XpSyncService,
     DiscordSetupService,
     DiscordVerifyService,
     OnboardingCommand,

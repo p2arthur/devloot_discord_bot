@@ -2,6 +2,44 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import axios from 'axios';
 import { AiService } from '../../ai/ai.service';
 
+type DiscordMessageResponse = {
+  id?: string;
+};
+
+type GitHubIssueResponse = {
+  title?: string;
+  body?: string | null;
+  labels?: Array<string | { name: string }>;
+};
+
+function buildThreadName(prefix: string, title: string): string {
+  const compactTitle = title.replace(/\s+/g, ' ').trim();
+  return `${prefix} ${compactTitle}`.slice(0, 100);
+}
+
+function describeDiscordApiError(err: unknown): {
+  status: number | undefined;
+  body: string | undefined;
+  message: string;
+} {
+  if (axios.isAxiosError<unknown>(err)) {
+    return {
+      status: err.response?.status,
+      body:
+        err.response?.data === undefined
+          ? undefined
+          : JSON.stringify(err.response.data),
+      message: err.message,
+    };
+  }
+
+  return {
+    status: undefined,
+    body: undefined,
+    message: err instanceof Error ? err.message : String(err),
+  };
+}
+
 @Injectable()
 export class DiscordNotificationService implements OnModuleInit {
   private readonly logger = new Logger(DiscordNotificationService.name);
@@ -27,7 +65,7 @@ export class DiscordNotificationService implements OnModuleInit {
     }
   }
 
-  private async sendMessage(content: string): Promise<void> {
+  private async sendMessage(content: string): Promise<string | undefined> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
       return;
@@ -38,7 +76,7 @@ export class DiscordNotificationService implements OnModuleInit {
     );
 
     try {
-      const response = await axios.post(
+      const response = await axios.post<DiscordMessageResponse>(
         `https://discord.com/api/v10/channels/${this.channelId}/messages`,
         { content },
         {
@@ -49,11 +87,13 @@ export class DiscordNotificationService implements OnModuleInit {
         },
       );
       this.logger.log(
-        `Discord message sent — status: ${response.status}, messageId: ${response.data?.id}`,
+        `Discord message sent — status: ${response.status}, messageId: ${response.data.id}`,
       );
-    } catch (err) {
+      return response.data.id;
+    } catch (err: unknown) {
+      const { status, body, message } = describeDiscordApiError(err);
       this.logger.error(
-        `Discord notification failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord notification failed — status: ${status}, body: ${body}, message: ${message}`,
       );
     }
   }
@@ -69,14 +109,14 @@ export class DiscordNotificationService implements OnModuleInit {
     description: string,
     fields: { name: string; value: string; inline?: boolean }[],
     color: number,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
       return;
     }
 
     try {
-      const response = await axios.post(
+      const response = await axios.post<DiscordMessageResponse>(
         `https://discord.com/api/v10/channels/${this.channelId}/messages`,
         {
           embeds: [
@@ -97,11 +137,41 @@ export class DiscordNotificationService implements OnModuleInit {
         },
       );
       this.logger.log(
-        `Discord embed sent — status: ${response.status}, messageId: ${response.data?.id}`,
+        `Discord embed sent — status: ${response.status}, messageId: ${response.data.id}`,
       );
-    } catch (err) {
+      return response.data.id;
+    } catch (err: unknown) {
+      const { status, body, message } = describeDiscordApiError(err);
       this.logger.error(
-        `Discord embed failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord embed failed — status: ${status}, body: ${body}, message: ${message}`,
+      );
+    }
+  }
+
+  private async createMessageThread(
+    messageId: string,
+    name: string,
+  ): Promise<void> {
+    if (!this.isConfigured) return;
+
+    try {
+      await axios.post(
+        `https://discord.com/api/v10/channels/${this.channelId}/messages/${messageId}/threads`,
+        {
+          name,
+          auto_archive_duration: 10080,
+        },
+        {
+          headers: {
+            Authorization: `Bot ${this.botToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      this.logger.log(`Created Discord thread for message ${messageId}`);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[bounty-feed] Failed to create thread for message ${messageId}: ${describeDiscordApiError(err).message}`,
       );
     }
   }
@@ -133,16 +203,17 @@ export class DiscordNotificationService implements OnModuleInit {
     } | null = null;
 
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GitHubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
         },
       );
-      issueTitle = issueRes.data.title || '';
-      const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map((l: any) =>
-        typeof l === 'string' ? l : l.name,
+      const issue = issueRes.data;
+      issueTitle = issue.title || '';
+      const issueBody = issue.body || '';
+      const issueLabels = (issue.labels || []).map((label) =>
+        typeof label === 'string' ? label : label.name,
       );
 
       aiSummary = await this.aiService.generateSuggestionSummary({
@@ -185,12 +256,22 @@ export class DiscordNotificationService implements OnModuleInit {
       });
     }
 
-    await this.sendEmbed(
+    const messageId = await this.sendEmbed(
       '🎯 New Bounty Created',
       `[${owner}/${repo}](https://github.com/${owner}/${repo})`,
       fields,
       0x2ecc71,
     );
+
+    if (messageId) {
+      await this.createMessageThread(
+        messageId,
+        buildThreadName(
+          'Bounty -',
+          issueTitle || `${owner}/${repo}#${issueNumber}`,
+        ),
+      );
+    }
   }
 
   notifyBountyClaimed(

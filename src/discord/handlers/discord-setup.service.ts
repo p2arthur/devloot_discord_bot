@@ -1,6 +1,13 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, Client } from 'discord.js';
+import {
+  ChannelType,
+  ChatInputCommandInteraction,
+  Client,
+  Colors,
+  EmbedBuilder,
+  PermissionFlagsBits,
+  TextChannel,
+} from 'discord.js';
 import { OnboardingCommand } from '../commands/onboarding';
 
 @Injectable()
@@ -9,7 +16,9 @@ export class DiscordSetupService {
 
   constructor(private readonly onboarding: OnboardingCommand) {}
 
-  async handleSetupServer(interaction: any, client: Client): Promise<void> {
+  async handleSetupServer(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
     if (!interaction.memberPermissions?.has('Administrator')) {
       await interaction.reply({
         content: 'Only server admins can run this command.',
@@ -27,7 +36,6 @@ export class DiscordSetupService {
     }
 
     const results: string[] = [];
-
     const roles = [
       { name: 'Verified', color: 0x2ecc71, hoist: true },
       { name: 'Open Source Chef', color: 0xf39c12, hoist: true },
@@ -58,56 +66,63 @@ export class DiscordSetupService {
     }
 
     const everyoneId = guild.id;
-    const verifiedId = createdRoles['Verified'];
-
+    const verifiedId = createdRoles.Verified;
     const categories = [
       {
         name: '🚪 ONBOARDING',
         permissionOverwrites: [
-          { id: everyoneId, allow: ['ViewChannel'], deny: ['SendMessages'] },
-          { id: verifiedId, allow: ['ViewChannel', 'SendMessages'] },
+          {
+            id: everyoneId,
+            allow: [PermissionFlagsBits.ViewChannel],
+            deny: [PermissionFlagsBits.SendMessages],
+          },
+          {
+            id: verifiedId,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+            ],
+          },
         ],
       },
       {
         name: '🌍 COMMUNITY',
         permissionOverwrites: [
-          { id: everyoneId, deny: ['ViewChannel'] },
-          { id: verifiedId, allow: ['ViewChannel'] },
+          { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: verifiedId, allow: [PermissionFlagsBits.ViewChannel] },
         ],
       },
       {
         name: '🎯 BOUNTIES',
         permissionOverwrites: [
-          { id: everyoneId, deny: ['ViewChannel'] },
-          { id: verifiedId, allow: ['ViewChannel'] },
+          { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: verifiedId, allow: [PermissionFlagsBits.ViewChannel] },
         ],
       },
     ];
 
     const createdCategories: Record<string, string> = {};
-    for (const catDef of categories) {
+    for (const category of categories) {
       try {
         const existing = guild.channels.cache.find(
-          (c) => c?.name === catDef.name && c.type === 4,
+          (channel) =>
+            channel?.name === category.name &&
+            channel.type === ChannelType.GuildCategory,
         );
         if (existing) {
-          createdCategories[catDef.name] = existing.id;
-          results.push(`Category **${catDef.name}** already exists`);
+          createdCategories[category.name] = existing.id;
+          results.push(`Category **${category.name}** already exists`);
         } else {
-          const cat = await guild.channels.create({
-            name: catDef.name,
-            type: 4,
-            permissionOverwrites: catDef.permissionOverwrites.map((p) => ({
-              id: p.id,
-              allow: p.allow,
-              deny: p.deny,
-            })),
+          const created = await guild.channels.create({
+            name: category.name,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: category.permissionOverwrites,
           });
-          createdCategories[catDef.name] = cat.id;
-          results.push(`Created category **${catDef.name}**`);
+          createdCategories[category.name] = created.id;
+          results.push(`Created category **${category.name}**`);
         }
       } catch (err) {
-        results.push(`Failed to create category ${catDef.name}: ${err}`);
+        results.push(`Failed to create category ${category.name}: ${err}`);
       }
     }
 
@@ -120,7 +135,11 @@ export class DiscordSetupService {
         permissions: [
           {
             id: everyoneId,
-            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory,
+            ],
           },
         ],
       },
@@ -131,8 +150,11 @@ export class DiscordSetupService {
         permissions: [
           {
             id: everyoneId,
-            allow: ['ViewChannel', 'ReadMessageHistory'],
-            deny: ['SendMessages'],
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.ReadMessageHistory,
+            ],
+            deny: [PermissionFlagsBits.SendMessages],
           },
         ],
       },
@@ -144,8 +166,11 @@ export class DiscordSetupService {
         permissions: [
           {
             id: everyoneId,
-            allow: ['ViewChannel', 'ReadMessageHistory'],
-            deny: ['SendMessages'],
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.ReadMessageHistory,
+            ],
+            deny: [PermissionFlagsBits.SendMessages],
           },
         ],
       },
@@ -155,81 +180,82 @@ export class DiscordSetupService {
           'Talk open source, bounties, dev tools, or whatever. Builders+ can chat.',
         parent: createdCategories['🌍 COMMUNITY'],
         permissions: [
-          { id: everyoneId, deny: ['ViewChannel'] },
-          { id: verifiedId, allow: ['ViewChannel'] },
+          { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: verifiedId, allow: [PermissionFlagsBits.ViewChannel] },
         ],
       },
       {
         name: '💡-proposals',
         topic:
-          'Suggest open source issues worth funding. Use /propose — raw messages get cleaned up.',
+          'Suggest open source issues worth funding. Use /propose - raw messages get cleaned up.',
         parent: createdCategories['🌍 COMMUNITY'],
         permissions: [
-          { id: everyoneId, deny: ['ViewChannel'] },
-          { id: verifiedId, allow: ['ViewChannel', 'SendMessages'] },
+          { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+          {
+            id: verifiedId,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+            ],
+          },
         ],
       },
       {
         name: '💰-feed',
         topic:
-          'Live bounty feed — new bounties, claims, and payouts as they happen. devloot.xyz',
+          'Live bounty feed - new bounties, claims, and payouts as they happen. devloot.xyz',
         parent: createdCategories['🎯 BOUNTIES'],
         permissions: [
-          { id: everyoneId, deny: ['ViewChannel'] },
-          { id: verifiedId, allow: ['ViewChannel', 'ReadMessageHistory'] },
+          { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+          {
+            id: verifiedId,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.ReadMessageHistory,
+            ],
+          },
         ],
       },
     ];
 
-    for (const chDef of channels) {
+    for (const channel of channels) {
       try {
         const existing = guild.channels.cache.find(
-          (c) => c?.name === chDef.name,
+          (candidate) => candidate?.name === channel.name,
         );
         if (existing) {
-          if ('topic' in existing && existing.topic !== chDef.topic) {
-            await existing.edit({ topic: chDef.topic });
-            results.push(`Updated topic on **#${chDef.name}**`);
+          if ('topic' in existing && existing.topic !== channel.topic) {
+            await existing.edit({ topic: channel.topic });
+            results.push(`Updated topic on **#${channel.name}**`);
           } else {
-            results.push(`Channel **#${chDef.name}** already exists`);
+            results.push(`Channel **#${channel.name}** already exists`);
           }
         } else {
-          const ch = await guild.channels.create({
-            name: chDef.name,
-            type: 0,
-            topic: chDef.topic,
-            parent: chDef.parent,
-            permissionOverwrites: chDef.permissions.map((p) => ({
-              id: p.id,
-              allow: p.allow || [],
-              deny: p.deny || [],
-            })),
+          await guild.channels.create({
+            name: channel.name,
+            type: ChannelType.GuildText,
+            topic: channel.topic,
+            parent: channel.parent,
+            permissionOverwrites: channel.permissions,
           });
-          results.push(`Created channel **#${chDef.name}**`);
+          results.push(`Created channel **#${channel.name}**`);
         }
       } catch (err) {
-        results.push(`Failed to create channel #${chDef.name}: ${err}`);
+        results.push(`Failed to create channel #${channel.name}: ${err}`);
       }
     }
 
     try {
       const verifyChannel = guild.channels.cache.find(
-        (c) => c?.name === '🔓-verify',
+        (channel) => channel?.name === '🔓-verify',
       );
-      if (verifyChannel && 'send' in verifyChannel) {
-        const messages = await verifyChannel.messages.fetch({ limit: 20 });
-        const existingEmbed = messages.find(
-          (m) =>
-            m.author.id === client.user?.id &&
-            m.embeds[0]?.title === 'Welcome to DevLoot',
+      if (verifyChannel instanceof TextChannel) {
+        const posted = await this.postOnboardingEmbed(verifyChannel);
+        results.push(
+          posted
+            ? 'Posted onboarding embed in #🔓-verify'
+            : 'Onboarding embed already exists in #🔓-verify',
         );
-        if (!existingEmbed) {
-          const message = this.onboarding.buildOnboardingMessage();
-          await verifyChannel.send(message);
-          results.push('Posted onboarding embed in #🔓-verify');
-        } else {
-          results.push('Onboarding embed already exists in #🔓-verify');
-        }
       }
     } catch (err) {
       results.push(`Failed to post onboarding embed: ${err}`);
@@ -239,7 +265,7 @@ export class DiscordSetupService {
       .setColor(Colors.Green)
       .setTitle('Server Setup Complete')
       .setDescription(
-        results.map((r) => `• ${r}`).join('\n') +
+        results.map((result) => `- ${result}`).join('\n') +
           '\n\n**Important:** Make sure the bot role is at the TOP of the role hierarchy in Server Settings > Roles.',
       );
 
@@ -247,5 +273,53 @@ export class DiscordSetupService {
     this.logger.log(
       `[setup-server] Completed by ${interaction.user.tag}: ${results.length} items`,
     );
+  }
+
+  async ensureVerifyChannel(client: Client): Promise<void> {
+    const guildId = process.env.DISCORD_GUILD_ID;
+    if (!guildId) {
+      this.logger.warn(
+        '[welcome] DISCORD_GUILD_ID not set - skipping verify channel setup',
+      );
+      return;
+    }
+
+    try {
+      const guild = await client.guilds.fetch(guildId);
+      const channels = await guild.channels.fetch();
+      const verifyChannel = channels.find(
+        (channel) => channel?.name === '🔓-verify',
+      );
+
+      if (!(verifyChannel instanceof TextChannel)) {
+        this.logger.log(
+          '[welcome] #🔓-verify channel not found - skipping (run /setup-server first)',
+        );
+        return;
+      }
+
+      const posted = await this.postOnboardingEmbed(verifyChannel);
+      this.logger.log(
+        posted
+          ? '[welcome] Posted onboarding message to #🔓-verify'
+          : '[welcome] Onboarding message already exists in #🔓-verify',
+      );
+    } catch (err) {
+      this.logger.warn(`[welcome] Could not setup verify channel: ${err}`);
+    }
+  }
+
+  private async postOnboardingEmbed(channel: TextChannel): Promise<boolean> {
+    const messages = await channel.messages.fetch({ limit: 20 });
+    const existingBot = messages.find(
+      (message) =>
+        message.author.id === channel.client.user?.id &&
+        message.embeds[0]?.title === 'Welcome to DevLoot',
+    );
+    if (existingBot) return false;
+
+    const message = this.onboarding.buildOnboardingMessage();
+    await channel.send(message);
+    return true;
   }
 }

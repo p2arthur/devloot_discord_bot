@@ -11,4 +11,4 @@ async function bootstrap() {
 
   logger.log(`DevLoot Discord Bot running on port ${port}`);
 }
-bootstrap();
+void bootstrap();

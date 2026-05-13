@@ -109,7 +109,7 @@ model Bounty {
 
 model User {
   id                Int            @id @default(autoincrement())
-  githubId          Int            @unique
+  githubId          Int?           @unique
   username          String?
   wallet            String?
   githubAccessToken String?        @map("github_access_token")
