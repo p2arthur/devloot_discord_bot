@@ -12,30 +12,17 @@ export class DiscordXpService {
   ) {}
 
   async addXp(userId: string, amount: number): Promise<number> {
-    let user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.upsert({
       where: { discordId: userId },
+      update: { xp: { increment: amount } },
+      create: { discordId: userId, xp: amount },
     });
 
-    if (user) {
-      user = await this.prisma.user.update({
-        where: { id: user.id },
-        data: { xp: { increment: amount } },
-      });
-      this.logger.log(`[xp] +${amount} for ${userId} → total ${user.xp} XP`);
+    if (user.githubId) {
+      this.logger.log(`[xp] +${amount} for ${userId} -> total ${user.xp} XP`);
     } else {
-      const stubGithubId =
-        -(Date.now() % 1_000_000_000) - Math.floor(Math.random() * 1000);
-      try {
-        user = await this.prisma.user.create({
-          data: { discordId: userId, githubId: stubGithubId, xp: amount },
-        });
-      } catch {
-        user = await this.prisma.user.create({
-          data: { discordId: userId, githubId: stubGithubId - 1, xp: amount },
-        });
-      }
       this.logger.log(
-        `[xp] Created stub user for ${userId} (githubId: ${user.githubId}), +${amount} XP`,
+        `[xp] Created pending Discord user for ${userId}, +${amount} XP`,
       );
     }
 
@@ -48,7 +35,9 @@ export class DiscordXpService {
       where: { id: userId },
       data: { xp: { increment: amount } },
     });
-    this.logger.log(`[xp] +${amount} for user#${userId} → total ${user.xp} XP`);
+    this.logger.log(
+      `[xp] +${amount} for user#${userId} -> total ${user.xp} XP`,
+    );
 
     if (user.discordId) {
       await this.roleService.syncTierRole(user.discordId, user.xp);

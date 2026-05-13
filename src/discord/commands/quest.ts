@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 
@@ -22,7 +22,7 @@ export class QuestCommand {
     private xpService: DiscordXpService,
   ) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction): Promise<void> {
     const discordId = interaction.user.id;
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);

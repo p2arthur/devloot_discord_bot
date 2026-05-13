@@ -2,11 +2,28 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 
+type DiscordMemberResponse = {
+  roles: string[];
+  user: { id: string };
+};
+
+type DiscordRoleResponse = {
+  id: string;
+  name: string;
+};
+
 const TIER_ROLES = [
   { envVar: 'ROLE_LEGEND', threshold: 5000 },
   { envVar: 'ROLE_HUNTER', threshold: 2000 },
   { envVar: 'ROLE_BUILDER', threshold: 500 },
 ];
+
+function describeDiscordApiError(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    return String(err.response?.status ?? err.message);
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 @Injectable()
 export class DiscordRoleService {
@@ -49,7 +66,8 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const currentRoles: string[] = memberRes.data.roles;
+      const member = memberRes.data as DiscordMemberResponse;
+      const currentRoles = member.roles;
 
       const nonTierRoles = currentRoles.filter(
         (r) => !allTierRoleIds.includes(r),
@@ -115,7 +133,7 @@ export class DiscordRoleService {
       );
     } catch (err) {
       this.logger.warn(
-        `[role] Failed to sync tier role for ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to sync tier role for ${discordId}: ${describeDiscordApiError(err)}`,
       );
     }
   }
@@ -132,7 +150,8 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const currentRoles: string[] = memberRes.data.roles;
+      const member = memberRes.data as DiscordMemberResponse;
+      const currentRoles = member.roles;
       if (currentRoles.includes(scoutRoleId)) return;
 
       currentRoles.push(scoutRoleId);
@@ -149,7 +168,7 @@ export class DiscordRoleService {
       this.logger.log(`[role] Assigned Scout role to ${discordId}`);
     } catch (err) {
       this.logger.warn(
-        `[role] Failed to assign Scout role to ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to assign Scout role to ${discordId}: ${describeDiscordApiError(err)}`,
       );
     }
   }
@@ -207,7 +226,7 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const members: any[] = memberRes.data;
+      const members = memberRes.data as DiscordMemberResponse[];
 
       const membersWithChef = members.filter((m) =>
         m.roles.includes(chefRoleId),
@@ -266,7 +285,7 @@ export class DiscordRoleService {
       return { awarded, removed };
     } catch (err) {
       this.logger.warn(
-        `[chef] Failed weekly check: ${err?.response?.status ?? err.message}`,
+        `[chef] Failed weekly check: ${describeDiscordApiError(err)}`,
       );
       return { awarded: 0, removed: 0 };
     }
@@ -283,7 +302,8 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const role = res.data.find((r: any) => r.name === roleName);
+      const roles = res.data as DiscordRoleResponse[];
+      const role = roles.find((candidate) => candidate.name === roleName);
       return role?.id ?? null;
     } catch (err) {
       this.logger.warn(`[roles] Failed to fetch roles: ${err}`);
