@@ -207,7 +207,7 @@ export class DiscordRoleService {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const members: { roles: string[] }[] = memberRes.data;
+      const members: { roles: string[]; user: { id: string } }[] = memberRes.data;
 
       const membersWithChef = members.filter((m) =>
         m.roles.includes(chefRoleId),

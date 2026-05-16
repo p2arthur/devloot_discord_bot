@@ -15,6 +15,7 @@ import {
   MessageReaction,
   User,
 } from 'discord.js';
+import { PrismaService } from '../prisma/prisma.service';
 import { DiscordGuildService } from './services/discord-guild.service';
 import { DiscordVerifyService } from './handlers/discord-verify.service';
 import { ProposalVoteService } from './services/proposal-vote.service';
@@ -22,7 +23,7 @@ import { ChannelModerationService } from './services/channel-moderation.service'
 import { ChefSchedulerService } from './services/chef-scheduler.service';
 import { CommandDispatcherService } from './services/command-dispatcher.service';
 import { WelcomeService } from './services/welcome.service';
-import { QuestCommand } from './commands/quest';
+import { QuestCommand, QUEST_POOL } from './commands/quest';
 
 @Injectable()
 export class DiscordGateway implements OnModuleInit {
