@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { EmbedBuilder, Colors } from 'discord.js';
+import { EmbedBuilder, Colors, ChatInputCommandInteraction } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class LeaderboardCommand {
   constructor(private prisma: PrismaService) {}
 
-  async handle(interaction: any) {
+  async handle(interaction: ChatInputCommandInteraction) {
     const topUsers = await this.prisma.user.findMany({
       where: { xp: { gt: 0 } },
       orderBy: { xp: 'desc' },

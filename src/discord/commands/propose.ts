@@ -6,10 +6,12 @@ import {
   ButtonStyle,
   Client,
   TextChannel,
+  ChatInputCommandInteraction,
 } from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordXpService } from '../services/discord-xp.service';
 import { DiscordRoleService } from '../services/discord-role.service';
+import { AutoThreadingService } from '../services/auto-threading.service';
 import { AiService } from '../../ai/ai.service';
 import axios from 'axios';
 
@@ -25,10 +27,11 @@ export class ProposeCommand {
     private xpService: DiscordXpService,
     private roleService: DiscordRoleService,
     private aiService: AiService,
+    private threadingService: AutoThreadingService,
   ) {}
 
   async handle(
-    interaction: any,
+    interaction: ChatInputCommandInteraction,
     message: string,
     issueUrl: string,
     bountyAmountUsdc: number,
@@ -110,14 +113,15 @@ export class ProposeCommand {
 
       issueTitle = issueRes.data.title;
       issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: any) =>
+      issueLabels = (issueRes.data.labels || []).map((l: { name: string } | string) =>
         typeof l === 'string' ? l : l.name,
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
       this.logger.warn(
-        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${err?.response?.status}`,
+        `GitHub API error for ${owner}/${repo}#${issueNumber}: ${status}`,
       );
-      if (err?.response?.status === 404) {
+      if (status === 404) {
         await interaction.editReply(
           'Issue not found on GitHub. Double-check the URL.',
         );
@@ -329,6 +333,29 @@ export class ProposeCommand {
         where: { id: proposal.id },
         data: { messageId: channelMessageId },
       });
+
+      // Create auto-thread for proposal discussion
+      const suggestionsChannelId =
+        process.env.DISCORD_BOUNTY_SUGGESTIONS_CHANNEL_ID;
+      if (suggestionsChannelId) {
+        try {
+          const channel = (await client.channels.fetch(
+            suggestionsChannelId,
+          )) as TextChannel;
+          if (channel) {
+            await this.threadingService.createProposalThread(
+              channel,
+              channelMessageId,
+              issueTitle,
+              proposal.id,
+            );
+          }
+        } catch (err) {
+          this.logger.warn(
+            `[propose] Failed to create thread for proposal: ${err}`,
+          );
+        }
+      }
     }
 
     this.logger.log(
