@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, MessageFlags, ButtonInteraction } from 'discord.js';
+import {
+  EmbedBuilder,
+  Colors,
+  MessageFlags,
+  ButtonInteraction,
+} from 'discord.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DiscordRoleService } from '../services/discord-role.service';
 import { DiscordGuildService } from '../services/discord-guild.service';

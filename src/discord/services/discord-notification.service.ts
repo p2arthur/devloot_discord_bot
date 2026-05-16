@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import axios from 'axios';
 import { Client } from 'discord.js';
 import { AiService } from '../../ai/ai.service';
@@ -13,7 +13,7 @@ export class DiscordNotificationService implements OnModuleInit {
   constructor(
     private readonly aiService: AiService,
     private readonly threadingService: AutoThreadingService,
-    private readonly client: Client,
+    @Inject('DISCORD_CLIENT') private readonly client: Client,
   ) {}
 
   private get isConfigured(): boolean {
@@ -149,8 +149,8 @@ export class DiscordNotificationService implements OnModuleInit {
       );
       issueTitle = issueRes.data.title || '';
       const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map((l: { name: string } | string) =>
-        typeof l === 'string' ? l : l.name,
+      const issueLabels = (issueRes.data.labels || []).map(
+        (l: { name: string } | string) => (typeof l === 'string' ? l : l.name),
       );
 
       aiSummary = await this.aiService.generateSuggestionSummary({

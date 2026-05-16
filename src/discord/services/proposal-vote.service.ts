@@ -12,7 +12,10 @@ export class ProposalVoteService {
     private readonly xpService: DiscordXpService,
   ) {}
 
-  async handleReactionAdd(reaction: MessageReaction, user: User): Promise<void> {
+  async handleReactionAdd(
+    reaction: MessageReaction,
+    user: User,
+  ): Promise<void> {
     if (user.bot) return;
 
     if (reaction.partial) {

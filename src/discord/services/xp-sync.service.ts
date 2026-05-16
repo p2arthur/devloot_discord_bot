@@ -11,7 +11,10 @@ export class XpSyncService {
     private readonly xpService: DiscordXpService,
   ) {}
 
-  async syncPoints(): Promise<{ usersUpdated: number; totalXpAwarded: number }> {
+  async syncPoints(): Promise<{
+    usersUpdated: number;
+    totalXpAwarded: number;
+  }> {
     const createdBounties = await this.prisma.bounty.groupBy({
       by: ['creatorWallet'],
       _count: { id: true },

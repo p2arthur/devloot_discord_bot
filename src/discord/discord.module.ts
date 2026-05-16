@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { Client, GatewayIntentBits } from 'discord.js';
 import { DiscordGateway } from './discord.gateway';
 import { DiscordNotificationService } from './services/discord-notification.service';
 import { DiscordXpService } from './services/discord-xp.service';
@@ -22,10 +23,26 @@ import { ProposalsCommand } from './commands/proposals';
 import { LeaderboardCommand } from './commands/leaderboard';
 import { AiModule } from '../ai/ai.module';
 
+const DISCORD_CLIENT = {
+  provide: 'DISCORD_CLIENT',
+  useFactory: () => {
+    return new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageReactions,
+      ],
+    });
+  },
+};
+
 @Global()
 @Module({
   imports: [AiModule],
   providers: [
+    DISCORD_CLIENT,
     DiscordGateway,
     DiscordNotificationService,
     DiscordXpService,

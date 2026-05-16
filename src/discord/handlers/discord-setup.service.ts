@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EmbedBuilder, Colors, Client, ChatInputCommandInteraction } from 'discord.js';
+import {
+  EmbedBuilder,
+  Colors,
+  Client,
+  ChatInputCommandInteraction,
+} from 'discord.js';
 import { OnboardingCommand } from '../commands/onboarding';
 
 @Injectable()
@@ -8,7 +13,10 @@ export class DiscordSetupService {
 
   constructor(private readonly onboarding: OnboardingCommand) {}
 
-  async handleSetupServer(interaction: ChatInputCommandInteraction, client: Client): Promise<void> {
+  async handleSetupServer(
+    interaction: ChatInputCommandInteraction,
+    client: Client,
+  ): Promise<void> {
     if (!interaction.memberPermissions?.has('Administrator')) {
       await interaction.reply({
         content: 'Only server admins can run this command.',

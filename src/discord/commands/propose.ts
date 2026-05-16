@@ -113,11 +113,12 @@ export class ProposeCommand {
 
       issueTitle = issueRes.data.title;
       issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map((l: { name: string } | string) =>
-        typeof l === 'string' ? l : l.name,
+      issueLabels = (issueRes.data.labels || []).map(
+        (l: { name: string } | string) => (typeof l === 'string' ? l : l.name),
       );
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
+      const status = (err as { response?: { status?: number } })?.response
+        ?.status;
       this.logger.warn(
         `GitHub API error for ${owner}/${repo}#${issueNumber}: ${status}`,
       );

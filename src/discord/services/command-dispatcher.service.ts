@@ -116,8 +116,15 @@ export class CommandDispatcherService {
           break;
         case 'sync-points':
           // Admin only - check permission
-          if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-            await interaction.reply({ content: '❌ Admin only command', flags: MessageFlags.Ephemeral });
+          if (
+            !interaction.memberPermissions?.has(
+              PermissionFlagsBits.Administrator,
+            )
+          ) {
+            await interaction.reply({
+              content: '❌ Admin only command',
+              flags: MessageFlags.Ephemeral,
+            });
             return;
           }
           this.logger.log(`[/sync-points] ${discordId} triggering XP sync`);

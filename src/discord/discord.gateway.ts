@@ -1,7 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import {
   Client,
-  GatewayIntentBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -28,17 +27,9 @@ import { QuestCommand, QUEST_POOL } from './commands/quest';
 @Injectable()
 export class DiscordGateway implements OnModuleInit {
   private readonly logger = new Logger(DiscordGateway.name);
-  private readonly client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMessageReactions,
-    ],
-  });
 
   constructor(
+    @Inject('DISCORD_CLIENT') private readonly client: Client,
     private prisma: PrismaService,
     private guildService: DiscordGuildService,
     private verifyService: DiscordVerifyService,
@@ -56,7 +47,9 @@ export class DiscordGateway implements OnModuleInit {
     const guildId = process.env.DISCORD_GUILD_ID;
 
     if (!token || !clientId) {
-      this.logger.warn('DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID not set — bot DISABLED');
+      this.logger.warn(
+        'DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID not set — bot DISABLED',
+      );
       return;
     }
 
@@ -65,23 +58,61 @@ export class DiscordGateway implements OnModuleInit {
     await this.login(token);
   }
 
-  private async registerCommands(token: string, clientId: string, guildId: string | undefined) {
+  private async registerCommands(
+    token: string,
+    clientId: string,
+    guildId: string | undefined,
+  ) {
     const commands = [
-      new SlashCommandBuilder().setName('propose').setDescription('Suggest a GitHub issue for a bounty')
-        .addStringOption((o) => o.setName('message').setDescription('Short pitch for why this issue matters').setRequired(true))
-        .addStringOption((o) => o.setName('issue_url').setDescription('GitHub issue URL').setRequired(true))
-        .addNumberOption((o) => o.setName('bounty_amount').setDescription('Suggested bounty in USDC').setRequired(true).setMinValue(1)),
-      new SlashCommandBuilder().setName('daily').setDescription('Claim your daily XP reward'),
-      new SlashCommandBuilder().setName('rank').setDescription('Check your current XP and tier'),
-      new SlashCommandBuilder().setName('quests').setDescription('View available quests'),
-      new SlashCommandBuilder().setName('proposals').setDescription('View recent bounty proposals'),
-      new SlashCommandBuilder().setName('onboarding').setDescription('Start the onboarding flow'),
-      new SlashCommandBuilder().setName('leaderboard').setDescription('View top users by XP'),
-      new SlashCommandBuilder().setName('sync-points').setDescription('Sync XP from bounty activity (admin only)'),
-      new SlashCommandBuilder().setName('setup-server')
+      new SlashCommandBuilder()
+        .setName('propose')
+        .setDescription('Suggest a GitHub issue for a bounty')
+        .addStringOption((o) =>
+          o
+            .setName('message')
+            .setDescription('Short pitch for why this issue matters')
+            .setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName('issue_url')
+            .setDescription('GitHub issue URL')
+            .setRequired(true),
+        )
+        .addNumberOption((o) =>
+          o
+            .setName('bounty_amount')
+            .setDescription('Suggested bounty in USDC')
+            .setRequired(true)
+            .setMinValue(1),
+        ),
+      new SlashCommandBuilder()
+        .setName('daily')
+        .setDescription('Claim your daily XP reward'),
+      new SlashCommandBuilder()
+        .setName('rank')
+        .setDescription('Check your current XP and tier'),
+      new SlashCommandBuilder()
+        .setName('quests')
+        .setDescription('View available quests'),
+      new SlashCommandBuilder()
+        .setName('proposals')
+        .setDescription('View recent bounty proposals'),
+      new SlashCommandBuilder()
+        .setName('onboarding')
+        .setDescription('Start the onboarding flow'),
+      new SlashCommandBuilder()
+        .setName('leaderboard')
+        .setDescription('View top users by XP'),
+      new SlashCommandBuilder()
+        .setName('sync-points')
+        .setDescription('Sync XP from bounty activity (admin only)'),
+      new SlashCommandBuilder()
+        .setName('setup-server')
         .setDescription('Setup server channels and roles (admin only)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-      new SlashCommandBuilder().setName('check-chef')
+      new SlashCommandBuilder()
+        .setName('check-chef')
         .setDescription('Manually trigger Open Source Chef check (admin only)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     ];
@@ -94,7 +125,9 @@ export class DiscordGateway implements OnModuleInit {
 
     try {
       await rest.put(route, { body });
-      this.logger.log(`Registered ${commands.length} commands ${guildId ? `to guild ${guildId}` : 'globally'}`);
+      this.logger.log(
+        `Registered ${commands.length} commands ${guildId ? `to guild ${guildId}` : 'globally'}`,
+      );
     } catch (err) {
       this.logger.error(`Failed to register commands: ${err}`);
     }
@@ -108,38 +141,52 @@ export class DiscordGateway implements OnModuleInit {
       await this.welcomeService.setupVerifyChannel(this.client);
     });
 
-    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
-      if (interaction.isChatInputCommand()) {
-        await this.commandDispatcher.dispatch(interaction as ChatInputCommandInteraction, this.client);
-      } else if (interaction.isButton()) {
-        await this.handleButton(interaction as ButtonInteraction);
-      } else if (interaction.isModalSubmit()) {
-        this.logger.log(`[modal] ${interaction.customId} by ${interaction.user.tag}`);
-      }
-    });
+    this.client.on(
+      Events.InteractionCreate,
+      async (interaction: Interaction) => {
+        if (interaction.isChatInputCommand()) {
+          await this.commandDispatcher.dispatch(interaction, this.client);
+        } else if (interaction.isButton()) {
+          await this.handleButton(interaction);
+        } else if (interaction.isModalSubmit()) {
+          this.logger.log(
+            `[modal] ${interaction.customId} by ${interaction.user.tag}`,
+          );
+        }
+      },
+    );
 
     this.client.on(Events.MessageCreate, async (message: Message) => {
       await this.channelModerationService.handleMessage(message);
       await this.handleQuestChannelMessage(message);
     });
 
-    this.client.on(Events.MessageReactionAdd, async (reaction: MessageReaction, user: User) => {
-      await this.proposalVoteService.handleReactionAdd(reaction, user);
-    });
+    this.client.on(
+      Events.MessageReactionAdd,
+      async (reaction: MessageReaction, user: User) => {
+        await this.proposalVoteService.handleReactionAdd(reaction, user);
+      },
+    );
 
     this.client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
       await this.welcomeService.handleNewMember(member);
     });
 
-    this.client.on('error', (err) => this.logger.error(`Discord client error: ${err.message}`));
-    this.client.on('warn', (w) => this.logger.warn(`Discord client warning: ${w}`));
+    this.client.on('error', (err) =>
+      this.logger.error(`Discord client error: ${err.message}`),
+    );
+    this.client.on('warn', (w) =>
+      this.logger.warn(`Discord client warning: ${w}`),
+    );
   }
 
   private async login(token: string) {
     this.logger.log('Calling client.login()...');
     try {
       await this.client.login(token);
-      this.logger.log('client.login() resolved — waiting for clientReady event...');
+      this.logger.log(
+        'client.login() resolved — waiting for clientReady event...',
+      );
     } catch (err) {
       this.logger.error(`client.login() FAILED: ${err}`);
     }

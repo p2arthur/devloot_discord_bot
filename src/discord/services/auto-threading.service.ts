@@ -18,7 +18,7 @@ export class AutoThreadingService {
     const proposal = await this.prisma.proposal.findUnique({
       where: { id: proposalId },
     });
-    
+
     if (!proposal || proposal.threadCreated) {
       this.logger.log(
         `[thread] Thread already exists for proposal ${proposalId}, skipping`,
@@ -29,7 +29,7 @@ export class AutoThreadingService {
     try {
       const message = await channel.messages.fetch(messageId);
       const threadTitle = `[Proposal] ${issueTitle.slice(0, 80)}`;
-      
+
       const thread = await message.startThread({
         name: threadTitle,
         autoArchiveDuration: 60,
@@ -62,7 +62,9 @@ export class AutoThreadingService {
     try {
       const channel = await client.channels.fetch(channelId);
       if (!channel || !('messages' in channel)) {
-        this.logger.warn(`[thread] Channel ${channelId} not found or not a text channel`);
+        this.logger.warn(
+          `[thread] Channel ${channelId} not found or not a text channel`,
+        );
         return null;
       }
 
@@ -81,9 +83,7 @@ export class AutoThreadingService {
 
       return thread;
     } catch (err) {
-      this.logger.error(
-        `[thread] Failed to create thread for bounty: ${err}`,
-      );
+      this.logger.error(`[thread] Failed to create thread for bounty: ${err}`);
       return null;
     }
   }
