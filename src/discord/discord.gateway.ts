@@ -9,7 +9,6 @@ import {
   Interaction,
   Message,
   GuildMember,
-  ChatInputCommandInteraction,
   ButtonInteraction,
   MessageReaction,
   User,
@@ -134,16 +133,15 @@ export class DiscordGateway implements OnModuleInit {
   }
 
   private setupEventHandlers() {
-    this.client.once(Events.ClientReady, async (readyClient) => {
+    this.client.once(Events.ClientReady, (readyClient) => {
       this.logger.log(`✅ Logged in as ${readyClient.user.tag}`);
       this.guildService.setClient(this.client);
       this.chefSchedulerService.startWeeklyChefCheck();
-      await this.welcomeService.setupVerifyChannel(this.client);
+      void this.welcomeService.setupVerifyChannel(this.client);
     });
 
-    this.client.on(
-      Events.InteractionCreate,
-      async (interaction: Interaction) => {
+    this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
+      void (async () => {
         if (interaction.isChatInputCommand()) {
           await this.commandDispatcher.dispatch(interaction, this.client);
         } else if (interaction.isButton()) {
@@ -153,23 +151,25 @@ export class DiscordGateway implements OnModuleInit {
             `[modal] ${interaction.customId} by ${interaction.user.tag}`,
           );
         }
-      },
-    );
+      })();
+    });
 
-    this.client.on(Events.MessageCreate, async (message: Message) => {
-      await this.channelModerationService.handleMessage(message);
-      await this.handleQuestChannelMessage(message);
+    this.client.on(Events.MessageCreate, (message: Message) => {
+      void (async () => {
+        await this.channelModerationService.handleMessage(message);
+        await this.handleQuestChannelMessage(message);
+      })();
     });
 
     this.client.on(
       Events.MessageReactionAdd,
-      async (reaction: MessageReaction, user: User) => {
-        await this.proposalVoteService.handleReactionAdd(reaction, user);
+      (reaction: MessageReaction, user: User) => {
+        void this.proposalVoteService.handleReactionAdd(reaction, user);
       },
     );
 
-    this.client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
-      await this.welcomeService.handleNewMember(member);
+    this.client.on(Events.GuildMemberAdd, (member: GuildMember) => {
+      void this.welcomeService.handleNewMember(member);
     });
 
     this.client.on('error', (err) =>

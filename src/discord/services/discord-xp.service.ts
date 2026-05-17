@@ -18,7 +18,9 @@ export class DiscordXpService {
       update: { xp: { increment: amount } },
       create: {
         discordId: userId,
-        githubId: -Date.now(), // Temporary negative ID until user onboards
+        // Negative stub until GitHub OAuth onboarding; random fills the full
+        // signed Int range so unique-constraint collisions are negligible.
+        githubId: -Math.floor(Math.random() * 2_000_000_000 + 1),
         xp: amount,
       },
     });

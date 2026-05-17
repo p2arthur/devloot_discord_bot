@@ -15,6 +15,13 @@ import { AutoThreadingService } from '../services/auto-threading.service';
 import { AiService } from '../../ai/ai.service';
 import axios from 'axios';
 
+interface GitHubIssueResponse {
+  state: string;
+  title: string;
+  body: string | null;
+  labels: ({ name: string } | string)[];
+}
+
 const ISSUE_URL_REGEX =
   /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
 
@@ -97,7 +104,7 @@ export class ProposeCommand {
     let issueBody = '';
     let issueLabels: string[] = [];
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GitHubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
@@ -112,9 +119,9 @@ export class ProposeCommand {
       }
 
       issueTitle = issueRes.data.title;
-      issueBody = issueRes.data.body || '';
-      issueLabels = (issueRes.data.labels || []).map(
-        (l: { name: string } | string) => (typeof l === 'string' ? l : l.name),
+      issueBody = issueRes.data.body ?? '';
+      issueLabels = (issueRes.data.labels ?? []).map((l) =>
+        typeof l === 'string' ? l : l.name,
       );
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response

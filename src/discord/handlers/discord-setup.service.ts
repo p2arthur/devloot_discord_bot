@@ -4,8 +4,28 @@ import {
   Colors,
   Client,
   ChatInputCommandInteraction,
+  ChannelType,
+  OverwriteResolvable,
 } from 'discord.js';
 import { OnboardingCommand } from '../commands/onboarding';
+
+interface PermOverwrite {
+  id: string;
+  allow?: string[];
+  deny?: string[];
+}
+
+interface CategoryDef {
+  name: string;
+  permissionOverwrites: PermOverwrite[];
+}
+
+interface ChannelDef {
+  name: string;
+  topic: string;
+  parent: string;
+  permissions: PermOverwrite[];
+}
 
 @Injectable()
 export class DiscordSetupService {
@@ -67,7 +87,7 @@ export class DiscordSetupService {
     const everyoneId = guild.id;
     const verifiedId = createdRoles['Verified'];
 
-    const categories = [
+    const categories: CategoryDef[] = [
       {
         name: '🚪 ONBOARDING',
         permissionOverwrites: [
@@ -95,7 +115,8 @@ export class DiscordSetupService {
     for (const catDef of categories) {
       try {
         const existing = guild.channels.cache.find(
-          (c) => c?.name === catDef.name && c.type === 4,
+          (c) =>
+            c?.name === catDef.name && c.type === ChannelType.GuildCategory,
         );
         if (existing) {
           createdCategories[catDef.name] = existing.id;
@@ -103,12 +124,14 @@ export class DiscordSetupService {
         } else {
           const cat = await guild.channels.create({
             name: catDef.name,
-            type: 4,
-            permissionOverwrites: catDef.permissionOverwrites.map((p) => ({
-              id: p.id,
-              allow: p.allow,
-              deny: p.deny,
-            })),
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: catDef.permissionOverwrites.map(
+              (p): OverwriteResolvable => ({
+                id: p.id,
+                allow: p.allow as OverwriteResolvable['allow'],
+                deny: p.deny as OverwriteResolvable['deny'],
+              }),
+            ),
           });
           createdCategories[catDef.name] = cat.id;
           results.push(`Created category **${catDef.name}**`);
@@ -118,7 +141,7 @@ export class DiscordSetupService {
       }
     }
 
-    const channels = [
+    const channels: ChannelDef[] = [
       {
         name: '🔓-verify',
         topic:
@@ -201,16 +224,18 @@ export class DiscordSetupService {
             results.push(`Channel **#${chDef.name}** already exists`);
           }
         } else {
-          const ch = await guild.channels.create({
+          await guild.channels.create({
             name: chDef.name,
-            type: 0,
+            type: ChannelType.GuildText,
             topic: chDef.topic,
             parent: chDef.parent,
-            permissionOverwrites: chDef.permissions.map((p) => ({
-              id: p.id,
-              allow: p.allow || [],
-              deny: p.deny || [],
-            })),
+            permissionOverwrites: chDef.permissions.map(
+              (p): OverwriteResolvable => ({
+                id: p.id,
+                allow: p.allow as OverwriteResolvable['allow'],
+                deny: p.deny as OverwriteResolvable['deny'],
+              }),
+            ),
           });
           results.push(`Created channel **#${chDef.name}**`);
         }

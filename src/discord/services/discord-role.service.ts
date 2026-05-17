@@ -1,6 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
+
+interface DiscordMember {
+  roles: string[];
+  user: { id: string };
+}
+
+interface DiscordRole {
+  id: string;
+  name: string;
+}
 
 const TIER_ROLES = [
   { envVar: 'ROLE_LEGEND', threshold: 5000 },
@@ -43,7 +53,7 @@ export class DiscordRoleService {
     }
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMember>(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
@@ -114,8 +124,9 @@ export class DiscordRoleService {
         `[role] Synced tier role for ${discordId} (XP: ${xp}, role: ${tierName})`,
       );
     } catch (err) {
+      const e = err as AxiosError;
       this.logger.warn(
-        `[role] Failed to sync tier role for ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to sync tier role for ${discordId}: ${e.response?.status ?? e.message}`,
       );
     }
   }
@@ -126,7 +137,7 @@ export class DiscordRoleService {
     if (!guildId || !this.botToken || !scoutRoleId) return;
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMember>(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
@@ -135,10 +146,9 @@ export class DiscordRoleService {
       const currentRoles: string[] = memberRes.data.roles;
       if (currentRoles.includes(scoutRoleId)) return;
 
-      currentRoles.push(scoutRoleId);
       await axios.patch(
         `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
-        { roles: currentRoles },
+        { roles: [...currentRoles, scoutRoleId] },
         {
           headers: {
             Authorization: `Bot ${this.botToken}`,
@@ -148,8 +158,9 @@ export class DiscordRoleService {
       );
       this.logger.log(`[role] Assigned Scout role to ${discordId}`);
     } catch (err) {
+      const e = err as AxiosError;
       this.logger.warn(
-        `[role] Failed to assign Scout role to ${discordId}: ${err?.response?.status ?? err.message}`,
+        `[role] Failed to assign Scout role to ${discordId}: ${e.response?.status ?? e.message}`,
       );
     }
   }
@@ -201,14 +212,13 @@ export class DiscordRoleService {
     }
 
     try {
-      const memberRes = await axios.get(
+      const memberRes = await axios.get<DiscordMember[]>(
         `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const members: { roles: string[]; user: { id: string } }[] =
-        memberRes.data;
+      const members: DiscordMember[] = memberRes.data;
 
       const membersWithChef = members.filter((m) =>
         m.roles.includes(chefRoleId),
@@ -266,8 +276,9 @@ export class DiscordRoleService {
       );
       return { awarded, removed };
     } catch (err) {
+      const e = err as AxiosError;
       this.logger.warn(
-        `[chef] Failed weekly check: ${err?.response?.status ?? err.message}`,
+        `[chef] Failed weekly check: ${e.response?.status ?? e.message}`,
       );
       return { awarded: 0, removed: 0 };
     }
@@ -278,13 +289,13 @@ export class DiscordRoleService {
     if (!guildId || !this.botToken) return null;
 
     try {
-      const res = await axios.get(
+      const res = await axios.get<DiscordRole[]>(
         `https://discord.com/api/v10/guilds/${guildId}/roles`,
         {
           headers: { Authorization: `Bot ${this.botToken}` },
         },
       );
-      const role = res.data.find((r: { name: string }) => r.name === roleName);
+      const role = res.data.find((r) => r.name === roleName);
       return role?.id ?? null;
     } catch (err) {
       this.logger.warn(`[roles] Failed to fetch roles: ${err}`);

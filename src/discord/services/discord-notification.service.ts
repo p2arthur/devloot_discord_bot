@@ -1,8 +1,18 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { Client } from 'discord.js';
 import { AiService } from '../../ai/ai.service';
 import { AutoThreadingService } from './auto-threading.service';
+
+interface DiscordMessageResponse {
+  id?: string;
+}
+
+interface GitHubIssueResponse {
+  title: string;
+  body: string | null;
+  labels: ({ name: string } | string)[];
+}
 
 @Injectable()
 export class DiscordNotificationService implements OnModuleInit {
@@ -54,12 +64,14 @@ export class DiscordNotificationService implements OnModuleInit {
           },
         },
       );
+      const data = response.data as DiscordMessageResponse;
       this.logger.log(
-        `Discord message sent — status: ${response.status}, messageId: ${response.data?.id}`,
+        `Discord message sent — status: ${response.status}, messageId: ${data.id}`,
       );
     } catch (err) {
+      const e = err as AxiosError;
       this.logger.error(
-        `Discord notification failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord notification failed — status: ${e.response?.status}, body: ${JSON.stringify(e.response?.data)}, message: ${e.message}`,
       );
     }
   }
@@ -75,14 +87,14 @@ export class DiscordNotificationService implements OnModuleInit {
     description: string,
     fields: { name: string; value: string; inline?: boolean }[],
     color: number,
-  ): Promise<{ status: number; data?: { id?: string } } | null> {
+  ): Promise<{ status: number; data?: DiscordMessageResponse } | null> {
     if (!this.isConfigured) {
       this.logger.warn('Discord not configured — skipping notification');
       return null;
     }
 
     try {
-      const response = await axios.post(
+      const response = await axios.post<DiscordMessageResponse>(
         `https://discord.com/api/v10/channels/${this.channelId}/messages`,
         {
           embeds: [
@@ -103,12 +115,13 @@ export class DiscordNotificationService implements OnModuleInit {
         },
       );
       this.logger.log(
-        `Discord embed sent — status: ${response.status}, messageId: ${response.data?.id}`,
+        `Discord embed sent — status: ${response.status}, messageId: ${response.data.id}`,
       );
       return { status: response.status, data: response.data };
     } catch (err) {
+      const e = err as AxiosError;
       this.logger.error(
-        `Discord embed failed — status: ${err?.response?.status}, body: ${JSON.stringify(err?.response?.data)}, message: ${err.message}`,
+        `Discord embed failed — status: ${e.response?.status}, body: ${JSON.stringify(e.response?.data)}, message: ${e.message}`,
       );
       return null;
     }
@@ -141,16 +154,16 @@ export class DiscordNotificationService implements OnModuleInit {
     } | null = null;
 
     try {
-      const issueRes = await axios.get(
+      const issueRes = await axios.get<GitHubIssueResponse>(
         `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`,
         {
           headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` },
         },
       );
-      issueTitle = issueRes.data.title || '';
-      const issueBody = issueRes.data.body || '';
-      const issueLabels = (issueRes.data.labels || []).map(
-        (l: { name: string } | string) => (typeof l === 'string' ? l : l.name),
+      issueTitle = issueRes.data.title;
+      const issueBody = issueRes.data.body ?? '';
+      const issueLabels = (issueRes.data.labels ?? []).map((l) =>
+        typeof l === 'string' ? l : l.name,
       );
 
       aiSummary = await this.aiService.generateSuggestionSummary({

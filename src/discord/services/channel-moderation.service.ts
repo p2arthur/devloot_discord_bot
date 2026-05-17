@@ -16,7 +16,7 @@ export class ChannelModerationService {
       try {
         await message.delete();
         const warning = await (message.channel as TextChannel).send(
-          `${message.author}, this channel is bot-only. Use \`/propose\` in the suggestions channel instead.`,
+          `<@${message.author.id}>, this channel is bot-only. Use \`/propose\` in the suggestions channel instead.`,
         );
         setTimeout(() => void warning.delete().catch(() => {}), 5000);
       } catch (err) {
@@ -36,7 +36,7 @@ export class ChannelModerationService {
       try {
         await message.delete();
         const warning = await (message.channel as TextChannel).send(
-          `${message.author}, use \`/propose\` to post in this channel.`,
+          `<@${message.author.id}>, use \`/propose\` to post in this channel.`,
         );
         setTimeout(() => void warning.delete().catch(() => {}), 5000);
       } catch (err) {
@@ -57,7 +57,7 @@ export class ChannelModerationService {
       try {
         await message.delete();
         const warning = await (message.channel as TextChannel).send(
-          `${message.author}, use \`/propose\` to post in this channel.`,
+          `<@${message.author.id}>, use \`/propose\` to post in this channel.`,
         );
         setTimeout(() => void warning.delete().catch(() => {}), 5000);
       } catch (err) {

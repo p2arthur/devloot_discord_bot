@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 
+interface OpenRouterChoice {
+  message: { content: string };
+}
+
+interface OpenRouterResponse {
+  choices: OpenRouterChoice[];
+}
+
 @Injectable()
 export class AiService {
   private readonly apiKey = process.env.OPENROUTER_API_KEY;
@@ -37,7 +45,7 @@ Provide:
 3. Suggested USDC bounty range
 4. Key technical considerations for potential solvers`;
 
-    const response = await axios.post(
+    const response = await axios.post<OpenRouterResponse>(
       this.baseUrl,
       {
         model: this.model,
@@ -71,7 +79,7 @@ PARAGRAPH 2: One sentence about why this specific issue matters or what it solve
 
 Be direct. No preamble. No markdown.`;
 
-    const response = await axios.post(
+    const response = await axios.post<OpenRouterResponse>(
       this.baseUrl,
       {
         model: this.model,
@@ -82,10 +90,10 @@ Be direct. No preamble. No markdown.`;
     );
 
     const raw = response.data.choices[0].message.content;
-    const parts = raw.split('|||').map((s: string) => s.trim());
+    const parts = raw.split('|||').map((s) => s.trim());
     return {
-      repoDescription: parts[0] || raw,
-      issueDescription: parts[1] || '',
+      repoDescription: parts[0] ?? raw,
+      issueDescription: parts[1] ?? '',
     };
   }
 
@@ -96,15 +104,18 @@ Be direct. No preamble. No markdown.`;
     totalVotes: number;
     bountiesCompleted: number;
   }): Promise<string> {
+    const topProposalsList = data.topProposals
+      .map((p) => `${p.title} (${p.upvotes})`)
+      .join(', ');
     const prompt = `Generate a 3-4 sentence weekly summary for a Discord community digest.
 
 Top contributors: ${data.topContributors.map((c) => `${c.name} (${c.xp} XP)`).join(', ')}
-Top proposals: ${data.topProposals.map((p) => `${p.title} (${p.upvotes})`)}
+Top proposals: ${topProposalsList}
 Stats: ${data.totalProposals} proposals, ${data.totalVotes} votes, ${data.bountiesCompleted} bounties completed.
 
 Keep it concise, enthusiastic, and focused on community momentum.`;
 
-    const response = await axios.post(
+    const response = await axios.post<OpenRouterResponse>(
       this.baseUrl,
       {
         model: this.model,
